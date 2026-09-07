@@ -14,7 +14,6 @@ and docs; the simulators and models live upstream.
 | Path | What it does |
 |---|---|
 | `openvla/` | Upstream OpenVLA clone (git-ignored). Training, LoRA fine-tune (`vla-scripts/`), REST deploy server, LIBERO/Bridge eval scripts. Pinned by `setup.sh`. |
-| `openvla.github.io/` | Upstream project-website clone (git-ignored). Static site only — no runnable code. |
 | `RoboDojo/` | Upstream benchmark clone (git-ignored). 54 runnable sim tasks, sim stack (`env/`), configs (`env_cfg/`), eval entry `scripts/robodojo.sh`, policy adapters in `XPolicyLab/` (incl. `OpenVLA_OFT`, `demo_policy`). Pinned by `setup.sh`. |
 | `tests/` | CPU-only smoke suite (stdlib `unittest`, Mac-safe). Layout checks, task-inventory validation (54 runnable, names match, real rewards), eval dry-run wiring, policy contract, template self-checks. Run: `make test`. |
 | `templates/robodojo_task/` | Skeleton for a new benchmark task (`my_task.yml` + `my_task.py` + checklist). Copy into the RoboDojo checkout, rename, PR upstream. |

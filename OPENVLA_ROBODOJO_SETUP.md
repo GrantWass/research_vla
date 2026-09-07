@@ -9,9 +9,12 @@ All repos live under `/Users/grantwasserman/Documents/GitHub/research_vla/`:
 | Directory | Source | Commit at setup | Contents |
 |---|---|---|---|
 | `openvla/` | `https://github.com/openvla/openvla.git` | `c8f03f4` | OpenVLA-7B training / fine-tune / deploy code (`vla-scripts/`, `prismatic/`, `experiments/`) |
-| `openvla.github.io/` | `https://github.com/openvla/openvla.github.io.git` | (website snapshot) | Static project website behind `https://openvla.github.io/` (paper, videos, links). No runnable code — the runnable repo is `openvla/` above. |
 | `RoboDojo/` | `https://github.com/RoboDojo-Benchmark/RoboDojo.git` | `ee67a14` | Sim benchmark (eval-only): `env/`, `env_cfg/`, `task/RoboDojo/`, `scripts/robodojo.sh`, `src/eval_client/` |
 | `RoboDojo/XPolicyLab/` | submodule `https://github.com/XPolicyLab/XPolicyLab.git` | `432f82b` | Policy servers/adapters, incl. `policy/OpenVLA_OFT/` + `policy/demo_policy/`. Initialized with `git submodule update --init --depth 1 XPolicyLab`. |
+
+Note: the `openvla.github.io` website repo (`https://openvla.github.io/`) was cloned
+initially but removed — 108 MB of static site assets with zero runnable code. The
+paper/videos live at the URL; everything executable is in `openvla/`.
 
 `third_party/IsaacLab` and `third_party/curobo` submodules were deliberately **not** initialized on this Mac (Linux-only, NVIDIA-only build).
 

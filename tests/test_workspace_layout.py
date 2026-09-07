@@ -28,9 +28,10 @@ class TestWorkspaceLayout(unittest.TestCase):
         ]:
             self.assertPathExists(p(rel))
 
-    def test_openvla_website_cloned(self):
-        # Static site only; runnable code lives in openvla/.
-        self.assertPathExists(p("openvla.github.io"))
+    def test_openvla_is_code_repo(self):
+        # openvla/ is the runnable codebase (the openvla.github.io website
+        # clone was removed: 108 MB of static assets, zero Python files).
+        self.assertPathExists(p("openvla/prismatic"))
 
     def test_robodojo_cloned(self):
         for rel in [
