@@ -11,6 +11,7 @@ import unittest
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TASK_TMPL = os.path.join(ROOT, "templates", "robodojo_task")
 POL_TMPL = os.path.join(ROOT, "templates", "xpolicylab_policy", "my_policy")
+FT_TMPL = os.path.join(ROOT, "templates", "openvla_finetune")
 
 
 class TestTaskTemplate(unittest.TestCase):
@@ -68,6 +69,33 @@ class TestPolicyTemplate(unittest.TestCase):
             src = f.read()
         for method in ["update_obs", "get_action", "reset"]:
             self.assertIn(f"def {method}", src)
+
+
+class TestFinetuneTemplate(unittest.TestCase):
+    def test_script_parses(self):
+        r = subprocess.run(
+            ["bash", "-n", os.path.join(FT_TMPL, "finetune_lora.sh")],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_lora_recipe_flags(self):
+        # The LoRA recipe needs these or the run silently misbehaves
+        # (wrong data dir, unregistered dataset, untracked checkpoints).
+        with open(os.path.join(FT_TMPL, "finetune_lora.sh")) as f:
+            src = f.read()
+        for flag in [
+            "vla-scripts/finetune.py",
+            "--vla_path",
+            "--data_root_dir",
+            "--dataset_name",
+            "--run_root_dir",
+            "--lora_rank",
+            "--save_steps",
+        ]:
+            self.assertIn(flag, src)
 
 
 if __name__ == "__main__":

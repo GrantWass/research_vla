@@ -215,6 +215,12 @@ Key `deploy.yml` knobs: `base_model_path`, `use_film`, `use_l1_regression`, `use
 - `templates/xpolicylab_policy/my_policy/` — new-policy skeleton mirroring
   `XPolicyLab/policy/demo_policy/` (`eval.sh`, `deploy.yml`, server/client launchers,
   zero-action `model.py`, eval loop, `install.sh`).
+- `templates/openvla_finetune/` — LoRA fine-tune launcher (`finetune_lora.sh`, all
+  settings via env vars) + checklist (routes, dataset registration, data-collection
+  rules, sanity checks). Run on the GPU box; `make finetune-help` for the shortcut.
+- `Makefile` — `make test|setup|check|doctor|inventory|dry-run TASK=<t>|finetune-help|clean`.
+- `setup.sh` (+ `--check`), `.gitignore`, `CONTRIBUTING.md`, `.pre-commit-config.yaml`,
+  `.github/` (CI smoke workflow + PR template).
 
 ## 7. Troubleshooting
 

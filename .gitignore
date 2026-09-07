@@ -13,6 +13,14 @@ data/
 *.pt
 *.bin
 *.safetensors
+*.hdf5
+
+# Secrets & experiment tracking (never commit)
+.hf_token
+.env
+.env.*
+wandb/
+*.wandb
 
 # Python
 __pycache__/
