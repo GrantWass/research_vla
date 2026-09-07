@@ -20,6 +20,7 @@ and docs; the simulators and models live upstream.
 | `templates/xpolicylab_policy/` | Skeleton for a new policy adapter (`eval.sh`, `deploy.yml`, server/client launchers, `model.py`, eval loop, `install.sh`). Mirrors `demo_policy`. |
 | `templates/openvla_finetune/` | LoRA fine-tune launcher (`finetune_lora.sh`, env-var configured) + checklist (routes, dataset registration, data-collection rules, sanity checks). GPU box only. |
 | `OPENVLA_ROBODOJO_SETUP.md` | Full guide: what was pulled, why RoboDojo, Mac-verified steps, Linux GPU setup, every eval command, troubleshooting. |
+| `REMOTE_ACCESS.md` | SSH into the Windows box from any network (OpenSSH server, key auth, Tailscale, troubleshooting). |
 | `CONTRIBUTING.md` | Branch/commit conventions, where each kind of work belongs, secrets handling, PR checklist. |
 | `setup.sh` | Reproduces the upstream checkouts at pinned commits + inits the XPolicyLab submodule. `--check` verifies pins without network writes. |
 | `Makefile` | Shortcuts: `test`, `setup`, `check`, `doctor`, `inventory`, `dry-run TASK=<t>`, `finetune-help`, `clean`. |
