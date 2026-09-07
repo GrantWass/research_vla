@@ -4,7 +4,7 @@ Date: 2026-09-06. Host at setup time: Apple M5 MacBook Pro, macOS 26.3.1 (arm64)
 
 ## 1. What was pulled
 
-All repos live under `/Users/grantwasserman/Documents/GitHub/research_vla/`:
+All repos live at the workspace root (the directory containing this file):
 
 | Directory | Source | Commit at setup | Contents |
 |---|---|---|---|
