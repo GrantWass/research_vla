@@ -1,0 +1,15 @@
+# TODO: rename policy_name to your policy. Keep protocol: ws (eval client default).
+policy_name: my_policy
+protocol: ws
+host: localhost
+port: null
+bench_name: null
+task_name: null
+ckpt_name: null
+env_cfg_type: null
+seed: null
+action_type: null
+gpu_id: null
+eval_batch: false
+# TODO: add model-specific keys below (checkpoint path, horizons, image size, ...)
+# checkpoint_path: checkpoints/<run_dir>

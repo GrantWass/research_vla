@@ -1,0 +1,19 @@
+# Scene config for my_task. Filename must be my_task.yml (rename with the task).
+# Labels in `label: [...]` must match the label= strings in my_task.py exactly.
+Rigid:
+  -
+    common:
+      xlim: [-0.45, 0.45]
+      ylim: [-0.25, 0.07]
+      rotate_rand: False
+      relative_plane: "Table"
+
+    category:
+      -
+        name: "bowl"          # TODO: pick an asset category present in Assets/Object/RoboDojo
+        index: [1, 2, 3]      # TODO: pick valid asset indices for that category
+
+    select_mode:
+      nums: 1
+      mode: "same"
+      label: ["target"]       # TODO: keep in sync with run_reward() labels

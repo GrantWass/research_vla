@@ -1,0 +1,27 @@
+# Upstream clones live here but are NOT committed; setup.sh reproduces them
+# at pinned commits. (Committed: tests/, templates/, docs, setup.sh itself.)
+openvla/
+openvla.github.io/
+RoboDojo/
+
+# Large runtime artifacts (never commit)
+Assets/
+eval_result/
+smoke_results/
+checkpoints/
+data/
+*.pt
+*.bin
+*.safetensors
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# macOS / editors
+.DS_Store
+.vscode/
+.idea/
