@@ -1,0 +1,43 @@
+# TurboVLA policy adapter for XPolicyLab / RoboDojo.
+# Installed (copied) to RoboDojo/XPolicyLab/policy/TurboVLA/ by
+# `bash scripts/install_adapter.sh turbovla`. Runtime overrides arrive via
+# setup_eval_policy_server.sh --overrides (bench/task/ckpt/env/seed/ports).
+policy_name: TurboVLA
+protocol: ws
+host: localhost
+port: 6000
+bench_name: null
+task_name: null
+ckpt_name: null
+env_cfg_type: null
+action_type: joint
+seed: null
+eval_batch: false
+
+checkpoint_num: null
+result_dir: "./results/TurboVLA/"
+obs_transform_pipeline: null
+
+# ---- TurboVLA model configuration ----
+# Null = resolve from environment / workspace layout at runtime (see README).
+# Explicit values always win over env vars.
+turbovla_repo: null       # $TURBOVLA_REPO or <workspace>/turbovla
+dinov3_path: null         # $DINOV3_PATH (dir with preprocessor_config.json)
+bert_path: null           # $BERT_PATH (bert-base-uncased HF dir)
+checkpoint_path: null     # $TURBOVLA_CKPT (.pth/.safetensors file or run dir)
+stats_path: null          # $TURBOVLA_STATS (normalization JSON; null = bundled LIBERO defaults)
+stats_key: null           # key inside stats_path (null = auto when unambiguous)
+
+num_views: 2
+image_size: 256
+chunk_size: 12
+num_open_loop_steps: 12
+state_dim: 8
+action_dim: 7
+device: cuda
+precision: bf16
+
+# Dual-arm envs (e.g. arx_x5/dual_x5) with a single-arm ckpt (7-D rows):
+#   error      -> fail fast with a fine-tune pointer (default; metrics stay honest)
+#   first_arm  -> drive arm 0 (+ its gripper), hold the other arm at zero (smoke only)
+dual_arm_mode: error

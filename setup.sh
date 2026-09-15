@@ -9,6 +9,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 OPENVLA_PIN="c8f03f4"
+TURBOVLA_PIN="b29ab14"
 ROBODOJO_PIN="ee67a14"
 XPOLICYLAB_PIN="432f82b1758c5b1202e42a3dfe014546dbc50871"
 
@@ -49,6 +50,7 @@ ensure_clone() {
 
 fail=0
 ensure_clone "openvla" "https://github.com/openvla/openvla.git" "${OPENVLA_PIN}" "OpenVLA" || fail=1
+ensure_clone "turbovla" "https://github.com/H-EmbodVis/TurboVLA.git" "${TURBOVLA_PIN}" "TurboVLA" || fail=1
 ensure_clone "RoboDojo" "https://github.com/RoboDojo-Benchmark/RoboDojo.git" "${ROBODOJO_PIN}" "RoboDojo" || fail=1
 
 # XPolicyLab submodule (policy adapters incl. OpenVLA_OFT + demo_policy).

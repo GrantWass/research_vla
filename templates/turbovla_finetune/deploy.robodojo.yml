@@ -1,0 +1,38 @@
+# Ready-made deploy.yml for a ROBODOJO-TRAINED TurboVLA checkpoint.
+# Copy over RoboDojo/XPolicyLab/policy/TurboVLA/deploy.yml, then fill in the
+# two paths. Values must match templates/turbovla_finetune/configs/robodojo.yaml
+# (image 224, 3 views, horizon 50, 14-D state/action).
+policy_name: TurboVLA
+protocol: ws
+host: localhost
+port: 6000
+bench_name: null
+task_name: null
+ckpt_name: null
+env_cfg_type: null
+action_type: joint
+seed: null
+eval_batch: false
+
+checkpoint_num: null
+result_dir: "./results/TurboVLA/"
+obs_transform_pipeline: null
+
+# ---- RoboDojo-trained model ----
+turbovla_repo: null       # $TURBOVLA_REPO or <workspace>/turbovla
+dinov3_path: null         # $DINOV3_PATH (same DINOv3 dir as training)
+bert_path: null           # $BERT_PATH (same BERT dir as training)
+checkpoint_path: null     # $TURBOVLA_CKPT: <run>/checkpoints/steps_*_ema_pytorch_model.pt
+stats_path: null          # $TURBOVLA_STATS: <run>/robodojo_stats.json (from compute_stats.py)
+stats_key: null
+
+num_views: 3
+image_size: 224
+chunk_size: 50
+num_open_loop_steps: 50
+state_dim: 14
+action_dim: 14
+device: cuda
+precision: bf16
+
+dual_arm_mode: error

@@ -9,12 +9,10 @@ All repos live at the workspace root (the directory containing this file):
 | Directory | Source | Commit at setup | Contents |
 |---|---|---|---|
 | `openvla/` | `https://github.com/openvla/openvla.git` | `c8f03f4` | OpenVLA-7B training / fine-tune / deploy code (`vla-scripts/`, `prismatic/`, `experiments/`) |
+| `turbovla/` | `https://github.com/H-EmbodVis/TurboVLA.git` | `b29ab14` | TurboVLA-0.2B training / eval code (`turbovla/`, `experiments/`, `scripts/`); served in RoboDojo via `adapters/turbovla_robodojo/` (see `POLICIES_ROBODOJO.md`) |
 | `RoboDojo/` | `https://github.com/RoboDojo-Benchmark/RoboDojo.git` | `ee67a14` | Sim benchmark (eval-only): `env/`, `env_cfg/`, `task/RoboDojo/`, `scripts/robodojo.sh`, `src/eval_client/` |
 | `RoboDojo/XPolicyLab/` | submodule `https://github.com/XPolicyLab/XPolicyLab.git` | `432f82b` | Policy servers/adapters, incl. `policy/OpenVLA_OFT/` + `policy/demo_policy/`. Initialized with `git submodule update --init --depth 1 XPolicyLab`. |
 
-Note: the `openvla.github.io` website repo (`https://openvla.github.io/`) was cloned
-initially but removed — 108 MB of static site assets with zero runnable code. The
-paper/videos live at the URL; everything executable is in `openvla/`.
 
 `third_party/IsaacLab` and `third_party/curobo` submodules were deliberately **not** initialized on this Mac (Linux-only, NVIDIA-only build).
 
@@ -142,6 +140,17 @@ python experiments/robot/libero/run_libero_eval.py --model_family openvla \
 
 ### 5c. RoboDojo eval (GPU box; `robodojo.sh` is the only entry point)
 
+Prefer the model-agnostic wrapper (see `POLICIES_ROBODOJO.md`) — it resolves
+`--policy-dir` / `--policy-env` / `--ckpt` from `policies/<name>.conf`, so
+OpenVLA ↔ TurboVLA is one flag:
+
+```bash
+bash scripts/run_eval.sh --policy openvla  --task stack_bowls --dry-run
+bash scripts/run_eval.sh --policy turbovla --task stack_bowls --dry-run
+```
+
+Raw `robodojo.sh` equivalents (what the wrapper forwards to):
+
 ```bash
 cd RoboDojo
 conda activate RoboDojo
@@ -204,6 +213,9 @@ Key `deploy.yml` knobs: `base_model_path`, `use_film`, `use_l1_regression`, `use
 ## 6. Repo map (where things live)
 
 - `openvla/vla-scripts/{deploy,finetune,train}.py` — inference server, LoRA FT, full FSDP training.
+- `turbovla/turbovla/{models,evaluation}/` — TurboVLA architecture + LIBERO/RoboTwin eval adapters.
+- `policies/{openvla,turbovla,demo}.conf` + `scripts/run_eval.sh` — model registry and the one-flag eval entry (`POLICIES_ROBODOJO.md`).
+- `adapters/turbovla_robodojo/` — this-repo XPolicyLab adapter for TurboVLA (installed via `scripts/install_adapter.sh`).
 - `openvla/experiments/robot/{libero,bridge}/` — LIBERO + WidowX eval scripts.
 - `RoboDojo/scripts/robodojo.sh` — all eval commands (`doctor eval server client smoke benchmark summarize tasks dimensions`).
 - `RoboDojo/task/RoboDojo/{config,tasks}/` — 54 runnable task YAML + logic; registry `task_registry.py`.

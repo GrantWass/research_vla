@@ -1,6 +1,7 @@
 # Upstream clones live here but are NOT committed; setup.sh reproduces them
 # at pinned commits. (Committed: tests/, templates/, docs, setup.sh itself.)
 openvla/
+turbovla/
 RoboDojo/
 
 # Large runtime artifacts (never commit)

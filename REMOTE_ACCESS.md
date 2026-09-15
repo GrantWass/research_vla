@@ -22,7 +22,7 @@ Get the LAN address for the first test: `ipconfig` → IPv4 (e.g. `192.168.1.50`
 ## 2. Test on the same WiFi (password auth)
 
 ```bash
-ssh <winuser>@192.168.1.50
+ssh grant@192.168.1.55
 ```
 
 Succeed here before touching keys or Tailscale.
