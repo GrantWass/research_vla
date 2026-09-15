@@ -7,7 +7,8 @@ everything this repo owns is verifiable on a Mac with system Python:
   - configs/robodojo.yaml keeps the recipe's config shape (key parity with the
     paper's clean50.yaml) and the 14-D / 3-view / horizon-50 settings.
   - compute_stats.summarize_frames is pure numpy: exact mean/std/min/max on
-    synthetic frames, JSON-serializable output.
+    synthetic frames, JSON-serializable output (skipped where numpy is
+    missing, e.g. stdlib-only CI).
   - train.sh + install_turbovla_training.sh parse; train.sh requires the
     overlay and the model-asset env vars.
 Run:  python3 -m unittest discover -s tests -v   (from research_vla root)
@@ -21,7 +22,10 @@ import subprocess
 import sys
 import unittest
 
-import numpy as np
+try:
+    import numpy as np
+except ImportError:  # stdlib-only CI (smoke.yml): numpy tests skip there.
+    np = None
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TMPL = os.path.join(ROOT, "templates", "turbovla_finetune")
@@ -238,6 +242,7 @@ class TestRoboDojoYaml(unittest.TestCase):
 
 
 class TestComputeStats(unittest.TestCase):
+    @unittest.skipIf(np is None, "numpy not installed (stdlib-only CI)")
     def test_summarize_frames_exact(self):
         from compute_stats import summarize_frames
 
@@ -254,6 +259,7 @@ class TestComputeStats(unittest.TestCase):
         # Adapter-consumable: plain lists, JSON round-trips.
         json.dumps(out)
 
+    @unittest.skipIf(np is None, "numpy not installed (stdlib-only CI)")
     def test_summarize_frames_rejects_bad_input(self):
         from compute_stats import summarize_frames
 
