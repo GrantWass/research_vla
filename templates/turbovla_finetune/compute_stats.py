@@ -30,7 +30,8 @@ def summarize_frames(states: np.ndarray, actions: np.ndarray) -> dict:
     actions = np.asarray(actions, dtype=np.float64)
     if states.ndim != 2 or actions.ndim != 2:
         raise ValueError(
-            f"Expected 2-D frame arrays, got {states.shape} / {actions.shape}")
+            f"Expected 2-D frame arrays, got {states.shape} / {actions.shape}"
+        )
     if states.shape[0] != actions.shape[0] or states.shape[0] == 0:
         raise ValueError("states/actions must be non-empty with equal frame counts.")
     return {
@@ -47,7 +48,8 @@ def summarize_frames(states: np.ndarray, actions: np.ndarray) -> dict:
 
 def discover_tasks(data_root: Path) -> list:
     return sorted(
-        p.name for p in data_root.iterdir()
+        p.name
+        for p in data_root.iterdir()
         if p.is_dir() and (p / "meta" / "info.json").is_file()
     )
 
@@ -55,20 +57,22 @@ def discover_tasks(data_root: Path) -> list:
 def load_frames(data_root: Path, tasks: list) -> tuple:
     """Stack observation.state / action frames across tasks (float64)."""
     try:
-        from lerobot.datasets.lerobot_dataset import LeRobotDataset  # noqa: PLC0415
+        from lerobot.datasets.lerobot_dataset import LeRobotDataset
     except ImportError as exc:
         raise ImportError(
-            "compute_stats needs the `lerobot` package (training env on the "
-            "GPU box).") from exc
+            "compute_stats needs the `lerobot` package (training env on the GPU box)."
+        ) from exc
     state_parts, action_parts = [], []
     for task in tasks:
         ds = LeRobotDataset(repo_id=task, root=data_root / task)
         for episode in ds.episodes():
             frame = ds[episode["episode_index"]]
-            state_parts.append(np.asarray(frame["observation.state"],
-                                          dtype=np.float64).reshape(-1))
-            action_parts.append(np.asarray(frame["action"],
-                                           dtype=np.float64).reshape(-1))
+            state_parts.append(
+                np.asarray(frame["observation.state"], dtype=np.float64).reshape(-1)
+            )
+            action_parts.append(
+                np.asarray(frame["action"], dtype=np.float64).reshape(-1)
+            )
     if not state_parts:
         raise ValueError(f"No frames found under {data_root} for tasks={tasks}.")
     return np.stack(state_parts), np.stack(action_parts)
@@ -76,26 +80,39 @@ def load_frames(data_root: Path, tasks: list) -> tuple:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Compute TurboVLA inference stats over RoboDojo LeRobot data.")
-    parser.add_argument("--data-root", required=True,
-                        help="Dir of per-task LeRobot datasets (lerobot_v3.0_ee).")
-    parser.add_argument("--tasks", default="",
-                        help="Comma-separated task dirs (default: auto-discover).")
-    parser.add_argument("--out", default="robodojo_stats.json",
-                        help="Output JSON path.")
+        description="Compute TurboVLA inference stats over RoboDojo LeRobot data."
+    )
+    parser.add_argument(
+        "--data-root",
+        required=True,
+        help="Dir of per-task LeRobot datasets (lerobot_v3.0_ee).",
+    )
+    parser.add_argument(
+        "--tasks",
+        default="",
+        help="Comma-separated task dirs (default: auto-discover).",
+    )
+    parser.add_argument(
+        "--out", default="robodojo_stats.json", help="Output JSON path."
+    )
     args = parser.parse_args()
 
     data_root = Path(args.data_root)
-    tasks = ([t.strip() for t in args.tasks.split(",") if t.strip()]
-             or discover_tasks(data_root))
+    tasks = [t.strip() for t in args.tasks.split(",") if t.strip()] or discover_tasks(
+        data_root
+    )
     if not tasks:
         raise SystemExit(f"No LeRobot datasets under {data_root}.")
-    print(f"[stats] {len(tasks)} tasks: {', '.join(tasks[:5])}"
-          f"{' ...' if len(tasks) > 5 else ''}")
+    print(
+        f"[stats] {len(tasks)} tasks: {', '.join(tasks[:5])}"
+        f"{' ...' if len(tasks) > 5 else ''}"
+    )
 
     states, actions = load_frames(data_root, tasks)
-    print(f"[stats] {states.shape[0]} frames, state_dim={states.shape[1]}, "
-          f"action_dim={actions.shape[1]}")
+    print(
+        f"[stats] {states.shape[0]} frames, state_dim={states.shape[1]}, "
+        f"action_dim={actions.shape[1]}"
+    )
     payload = summarize_frames(states, actions)
     payload["metadata"] = {
         "data_root": str(data_root),

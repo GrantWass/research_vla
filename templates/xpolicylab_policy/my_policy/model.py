@@ -4,6 +4,7 @@ Copy this directory to RoboDojo/XPolicyLab/policy/<YourPolicy>/ and replace
 get_action() with real inference. Imports of XPolicyLab resolve once the file
 lives inside the XPolicyLab tree (not from this templates/ folder).
 """
+
 import numpy as np
 
 try:
@@ -54,7 +55,9 @@ class Model(ModelTemplate):
         # per-step action dicts (action chunk); the eval loop steps through it.
         num_arms = len(self.robot_action_dim_info["arm_dim"])
         if num_arms == 1:
-            arm_keys = ["arm_joint_state"] if self.action_type == "joint" else ["ee_pose"]
+            arm_keys = (
+                ["arm_joint_state"] if self.action_type == "joint" else ["ee_pose"]
+            )
             ee_keys = ["ee_joint_state"]
         elif num_arms == 2:
             arm_keys = (

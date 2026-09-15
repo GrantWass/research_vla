@@ -8,6 +8,7 @@ TODOs:
      trivially-True) and gen_instruction().
   3. Tune step_lim to the task horizon.
 """
+
 from env.environment.task_env import TaskEnv
 from env.reward_manager.reward_manager import RewardManager
 
@@ -38,7 +39,9 @@ class MyTaskCommon:
         # the YAML `label:` list exactly.
         self.reward_manager.check(
             [
-                self.reward_manager.is_axis_up(label="target", axis=[0, 0, 1], threshold=45),
+                self.reward_manager.is_axis_up(
+                    label="target", axis=[0, 0, 1], threshold=45
+                ),
                 self.reward_manager.all_robot_back_to_origin(),
             ]
         )

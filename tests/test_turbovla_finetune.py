@@ -12,6 +12,7 @@ everything this repo owns is verifiable on a Mac with system Python:
     overlay and the model-asset env vars.
 Run:  python3 -m unittest discover -s tests -v   (from research_vla root)
 """
+
 import ast
 import json
 import os
@@ -26,15 +27,19 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TMPL = os.path.join(ROOT, "templates", "turbovla_finetune")
 OVERLAY = os.path.join(ROOT, "turbovla", "experiments", "robodojo")
 UPSTREAM_DC = os.path.join(
-    ROOT, "turbovla", "experiments", "robotwin", "data_registry", "data_config.py")
+    ROOT, "turbovla", "experiments", "robotwin", "data_registry", "data_config.py"
+)
 UPSTREAM_YAML = os.path.join(
-    ROOT, "turbovla", "experiments", "robotwin", "configs", "clean50.yaml")
+    ROOT, "turbovla", "experiments", "robotwin", "configs", "clean50.yaml"
+)
 
 sys.path.insert(0, TMPL)
 
 
 def run(cmd, cwd=ROOT, timeout=120):
-    return subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout)
+    return subprocess.run(
+        cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout, check=False
+    )
 
 
 def modality_key_lists(tree):
@@ -42,12 +47,22 @@ def modality_key_lists(tree):
     out = {}
     for node in ast.walk(tree):
         if isinstance(node, ast.Assign):
-            for target in node.targets:
-                if (isinstance(target, ast.Name)
-                        and target.id.endswith("_keys")
-                        and isinstance(node.value, ast.List)):
-                    out[target.id] = [e.value for e in node.value.elts
-                                      if isinstance(e, ast.Constant)]
+            targets = node.targets
+            value = node.value
+        elif isinstance(node, ast.AnnAssign) and node.value is not None:
+            targets = [node.target]
+            value = node.value
+        else:
+            continue
+        for target in targets:
+            if (
+                isinstance(target, ast.Name)
+                and target.id.endswith("_keys")
+                and isinstance(value, ast.List)
+            ):
+                out[target.id] = [
+                    e.value for e in value.elts if isinstance(e, ast.Constant)
+                ]
     return out
 
 
@@ -56,8 +71,12 @@ def top_level_keys(path):
     keys = []
     with open(path) as f:
         for line in f:
-            if line and not line[0].isspace() and ":" in line \
-                and not line.startswith("#"):
+            if (
+                line
+                and not line[0].isspace()
+                and ":" in line
+                and not line.startswith("#")
+            ):
                 keys.append(line.split(":", 1)[0].strip())
     return keys
 
@@ -100,18 +119,25 @@ class TestTrainingOverlay(unittest.TestCase):
         assert r.returncode == 0, f"install_training failed:\n{r.stderr}"
 
     def test_scripts_parse(self):
-        for script in ["scripts/install_turbovla_training.sh",
-                       "templates/turbovla_finetune/train.sh"]:
+        for script in [
+            "scripts/install_turbovla_training.sh",
+            "templates/turbovla_finetune/train.sh",
+        ]:
             r = run(["bash", "-n", script])
             self.assertEqual(r.returncode, 0, f"{script}: {r.stderr}")
 
     def test_overlay_matches_source(self):
         import filecmp
+
         for rel in ["data_registry/data_config.py", "configs/robodojo.yaml"]:
             with self.subTest(file=rel):
                 self.assertTrue(
-                    filecmp.cmp(os.path.join(TMPL, rel),
-                                os.path.join(OVERLAY, rel), shallow=False))
+                    filecmp.cmp(
+                        os.path.join(TMPL, rel),
+                        os.path.join(OVERLAY, rel),
+                        shallow=False,
+                    )
+                )
 
     def test_modality_keys_match_upstream(self):
         # The whole no-rewrite claim: RoboDojo data uses the same LeRobot
@@ -129,30 +155,46 @@ class TestTrainingOverlay(unittest.TestCase):
         with open(os.path.join(TMPL, "data_registry", "data_config.py")) as f:
             src = f.read()
         tree = ast.parse(src)
-        names = {n.name for n in ast.walk(tree)
-                 if isinstance(n, (ast.ClassDef, ast.FunctionDef))}
-        top = {t.id for t in tree.body
-               if isinstance(t, ast.Assign) for t in t.targets
-               if isinstance(t, ast.Name)}
+        names = {
+            n.name
+            for n in ast.walk(tree)
+            if isinstance(n, (ast.ClassDef, ast.FunctionDef))
+        }
+        top = {
+            t.id
+            for t in tree.body
+            if isinstance(t, ast.Assign)
+            for t in t.targets
+            if isinstance(t, ast.Name)
+        }
         self.assertIn("RoboDojoArxX5DataConfig", names)
-        for symbol in ["ROBOT_TYPE_CONFIG_MAP", "ROBOT_TYPE_TO_EMBODIMENT_TAG",
-                       "DATASET_NAMED_MIXTURES"]:
+        for symbol in [
+            "ROBOT_TYPE_CONFIG_MAP",
+            "ROBOT_TYPE_TO_EMBODIMENT_TAG",
+            "DATASET_NAMED_MIXTURES",
+        ]:
             self.assertIn(symbol, top, f"missing registry {symbol}")
         self.assertIn("robodojo_arx_x5", src)
         self.assertIn("ROBODOJO_TASKS", src)
 
     def test_data_config_compiles(self):
         py_compile.compile(
-            os.path.join(TMPL, "data_registry", "data_config.py"), doraise=True)
+            os.path.join(TMPL, "data_registry", "data_config.py"), doraise=True
+        )
 
     def test_train_launcher_contract(self):
         with open(os.path.join(TMPL, "train.sh")) as f:
             src = f.read()
-        for needle in ["ROBODOJO_DATA_ROOT", "BERT_MODEL_PATH",
-                       "TURBOVLA_INIT_CKPT", "DINOV3_MODEL_PATH",
-                       "install_turbovla_training.sh",
-                       "train_robotwin_clean_act_pi05_recipe.py",
-                       "meta/info.json", "ROBODOJO_TASKS"]:
+        for needle in [
+            "ROBODOJO_DATA_ROOT",
+            "BERT_MODEL_PATH",
+            "TURBOVLA_INIT_CKPT",
+            "DINOV3_MODEL_PATH",
+            "install_turbovla_training.sh",
+            "train_robotwin_clean_act_pi05_recipe.py",
+            "meta/info.json",
+            "ROBODOJO_TASKS",
+        ]:
             self.assertIn(needle, src, f"train.sh missing {needle}")
 
 
@@ -170,41 +212,51 @@ class TestRoboDojoYaml(unittest.TestCase):
         self.assertEqual(yml_value(self.PATH, "framework", "vision", "num_views"), 3)
         self.assertEqual(yml_value(self.PATH, "framework", "vision", "image_size"), 224)
         self.assertEqual(
-            yml_value(self.PATH, "datasets", "vla_data", "data_mix"), "robodojo_arx_x5")
-        self.assertIn("ROBODOJO_DATA_ROOT",
-                      yml_value(self.PATH, "datasets", "vla_data", "data_root_dir"))
+            yml_value(self.PATH, "datasets", "vla_data", "data_mix"), "robodojo_arx_x5"
+        )
+        self.assertIn(
+            "ROBODOJO_DATA_ROOT",
+            yml_value(self.PATH, "datasets", "vla_data", "data_root_dir"),
+        )
 
     def test_deploy_robodojo_matches_training(self):
         from pathlib import Path as _P
+
         deploy = _P(TMPL) / "deploy.robodojo.yml"
         self.assertTrue(deploy.is_file())
         src = deploy.read_text()
-        for line in ["policy_name: TurboVLA", "protocol: ws",
-                     "num_views: 3", "image_size: 224", "chunk_size: 50",
-                     "state_dim: 14", "action_dim: 14"]:
+        for line in [
+            "policy_name: TurboVLA",
+            "protocol: ws",
+            "num_views: 3",
+            "image_size: 224",
+            "chunk_size: 50",
+            "state_dim: 14",
+            "action_dim: 14",
+        ]:
             self.assertIn(line, src)
 
 
 class TestComputeStats(unittest.TestCase):
     def test_summarize_frames_exact(self):
         from compute_stats import summarize_frames
+
         rng = np.random.default_rng(0)
         states = rng.normal(size=(100, 14))
         actions = rng.uniform(-1, 1, size=(100, 14))
         out = summarize_frames(states, actions)
         np.testing.assert_allclose(
-            out["proprio"]["mean"], states.mean(axis=0), rtol=1e-6)
-        np.testing.assert_allclose(
-            out["proprio"]["std"], states.std(axis=0), rtol=1e-6)
-        np.testing.assert_allclose(
-            out["action"]["min"], actions.min(axis=0), rtol=1e-6)
-        np.testing.assert_allclose(
-            out["action"]["max"], actions.max(axis=0), rtol=1e-6)
+            out["proprio"]["mean"], states.mean(axis=0), rtol=1e-6
+        )
+        np.testing.assert_allclose(out["proprio"]["std"], states.std(axis=0), rtol=1e-6)
+        np.testing.assert_allclose(out["action"]["min"], actions.min(axis=0), rtol=1e-6)
+        np.testing.assert_allclose(out["action"]["max"], actions.max(axis=0), rtol=1e-6)
         # Adapter-consumable: plain lists, JSON round-trips.
         json.dumps(out)
 
     def test_summarize_frames_rejects_bad_input(self):
         from compute_stats import summarize_frames
+
         with self.assertRaises(ValueError):
             summarize_frames(np.zeros((0, 14)), np.zeros((0, 14)))
         with self.assertRaises(ValueError):

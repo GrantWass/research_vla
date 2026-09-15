@@ -3,6 +3,7 @@
 Runs on any machine with system Python. No GPU, Isaac, torch, or conda needed.
 Run:  python3 -m unittest discover -s tests -v   (from research_vla root)
 """
+
 import os
 import unittest
 
@@ -14,7 +15,7 @@ def p(*parts):
 
 
 class TestWorkspaceLayout(unittest.TestCase):
-    def assertPathExists(self, path):  # noqa: N802
+    def assertPathExists(self, path):
         self.assertTrue(os.path.exists(path), f"missing: {path}")
 
     def test_openvla_cloned(self):

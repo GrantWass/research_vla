@@ -10,6 +10,7 @@ is installed into the (git-ignored) RoboDojo checkout by the test setup via
 scripts/install_adapter.sh, which only copies files.
 Run:  python3 -m unittest discover -s tests -v   (from research_vla root)
 """
+
 import filecmp
 import os
 import py_compile
@@ -41,7 +42,9 @@ ADAPTER_FILES = [
 
 
 def run(cmd, cwd=ROOT, timeout=120):
-    return subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout)
+    return subprocess.run(
+        cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout, check=False
+    )
 
 
 def ensure_adapter_installed():
@@ -81,8 +84,9 @@ class TestPolicyRegistry(unittest.TestCase):
         cls.confs = {}
         for fname in sorted(os.listdir(POLICIES_DIR)):
             if fname.endswith(".conf"):
-                cls.confs[fname[:-len(".conf")]] = parse_conf(
-                    os.path.join(POLICIES_DIR, fname))
+                cls.confs[fname[: -len(".conf")]] = parse_conf(
+                    os.path.join(POLICIES_DIR, fname)
+                )
 
     def test_known_policies_registered(self):
         for name in ["openvla", "turbovla", "demo"]:
@@ -90,8 +94,9 @@ class TestPolicyRegistry(unittest.TestCase):
 
     def test_names_match_filenames(self):
         for name, conf in self.confs.items():
-            self.assertEqual(conf.get("POLICY_NAME"), name,
-                             f"POLICY_NAME mismatch in {name}.conf")
+            self.assertEqual(
+                conf.get("POLICY_NAME"), name, f"POLICY_NAME mismatch in {name}.conf"
+            )
 
     def test_required_fields_present(self):
         for name, conf in self.confs.items():
@@ -108,15 +113,19 @@ class TestPolicyRegistry(unittest.TestCase):
         # openvla/demo adapters ship with XPolicyLab; they must be present.
         for name in ["openvla", "demo"]:
             d = os.path.join(ROBODOJO, self.confs[name]["XPOLICYLAB_POLICY_DIR"])
-            self.assertTrue(os.path.isfile(os.path.join(d, "eval.sh")),
-                            f"missing adapter: {d}")
+            self.assertTrue(
+                os.path.isfile(os.path.join(d, "eval.sh")), f"missing adapter: {d}"
+            )
 
     def test_turbovla_conf_points_at_owned_adapter(self):
-        self.assertTrue(os.path.isdir(ADAPTER_SRC),
-                        "adapters/turbovla_robodojo/ missing")
+        self.assertTrue(
+            os.path.isdir(ADAPTER_SRC), "adapters/turbovla_robodojo/ missing"
+        )
         for fname in ADAPTER_FILES:
-            self.assertTrue(os.path.isfile(os.path.join(ADAPTER_SRC, fname)),
-                            f"adapter missing {fname}")
+            self.assertTrue(
+                os.path.isfile(os.path.join(ADAPTER_SRC, fname)),
+                f"adapter missing {fname}",
+            )
 
 
 class TestRunEvalWrapper(unittest.TestCase):
@@ -145,8 +154,17 @@ class TestRunEvalWrapper(unittest.TestCase):
         }
         for policy, adapter in expectations.items():
             with self.subTest(policy=policy):
-                r = run(["bash", "scripts/run_eval.sh",
-                         "--policy", policy, "--task", "stack_bowls", "--dry-run"])
+                r = run(
+                    [
+                        "bash",
+                        "scripts/run_eval.sh",
+                        "--policy",
+                        policy,
+                        "--task",
+                        "stack_bowls",
+                        "--dry-run",
+                    ]
+                )
                 self.assertEqual(r.returncode, 0, r.stderr)
                 self.assertIn(adapter, r.stdout + r.stderr)
                 self.assertIn("stack_bowls", r.stdout + r.stderr)
@@ -156,8 +174,17 @@ class TestRunEvalWrapper(unittest.TestCase):
         # never in task or harness invocation.
         outs = {}
         for policy in ["openvla", "turbovla"]:
-            r = run(["bash", "scripts/run_eval.sh",
-                     "--policy", policy, "--task", "stack_bowls", "--dry-run"])
+            r = run(
+                [
+                    "bash",
+                    "scripts/run_eval.sh",
+                    "--policy",
+                    policy,
+                    "--task",
+                    "stack_bowls",
+                    "--dry-run",
+                ]
+            )
             self.assertEqual(r.returncode, 0, r.stderr)
             outs[policy] = r.stdout + r.stderr
         self.assertIn("openvla-oft", outs["openvla"])
@@ -167,8 +194,17 @@ class TestRunEvalWrapper(unittest.TestCase):
             self.assertIn("run_policy_eval.sh", out)
 
     def test_unknown_policy_fails_with_hint(self):
-        r = run(["bash", "scripts/run_eval.sh",
-                 "--policy", "nope", "--task", "stack_bowls", "--dry-run"])
+        r = run(
+            [
+                "bash",
+                "scripts/run_eval.sh",
+                "--policy",
+                "nope",
+                "--task",
+                "stack_bowls",
+                "--dry-run",
+            ]
+        )
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("Unknown policy", r.stderr)
 
@@ -184,14 +220,21 @@ class TestTurboVLAAdapter(unittest.TestCase):
         for fname in ADAPTER_FILES:
             with self.subTest(file=fname):
                 self.assertTrue(
-                    filecmp.cmp(os.path.join(ADAPTER_SRC, fname),
-                                os.path.join(self.INSTALLED, fname),
-                                shallow=False),
-                    f"{fname}: installed copy differs from adapters/ source")
+                    filecmp.cmp(
+                        os.path.join(ADAPTER_SRC, fname),
+                        os.path.join(self.INSTALLED, fname),
+                        shallow=False,
+                    ),
+                    f"{fname}: installed copy differs from adapters/ source",
+                )
 
     def test_launchers_parse(self):
-        for fname in ["eval.sh", "setup_eval_policy_server.sh",
-                      "setup_eval_env_client.sh", "install.sh"]:
+        for fname in [
+            "eval.sh",
+            "setup_eval_policy_server.sh",
+            "setup_eval_env_client.sh",
+            "install.sh",
+        ]:
             for base in [ADAPTER_SRC, self.INSTALLED]:
                 r = run(["bash", "-n", os.path.join(base, fname)])
                 self.assertEqual(r.returncode, 0, f"{base}/{fname}: {r.stderr}")
@@ -220,8 +263,10 @@ class TestTurboVLACheckout(unittest.TestCase):
         self.assertIn("TURBOVLA_PIN=", src)
         self.assertIn("https://github.com/H-EmbodVis/TurboVLA.git", src)
 
-    @unittest.skipUnless(os.path.isdir(os.path.join(ROOT, "turbovla", ".git")),
-                         "turbovla/ not cloned (run setup.sh with network)")
+    @unittest.skipUnless(
+        os.path.isdir(os.path.join(ROOT, "turbovla", ".git")),
+        "turbovla/ not cloned (run setup.sh with network)",
+    )
     def test_turbovla_layout(self):
         for rel in [
             "turbovla/pyproject.toml",
@@ -229,8 +274,7 @@ class TestTurboVLACheckout(unittest.TestCase):
             "turbovla/turbovla/models/configuration.py",
             "turbovla/turbovla/evaluation/policy.py",
         ]:
-            self.assertTrue(os.path.exists(os.path.join(ROOT, rel)),
-                            f"missing: {rel}")
+            self.assertTrue(os.path.exists(os.path.join(ROOT, rel)), f"missing: {rel}")
 
 
 if __name__ == "__main__":

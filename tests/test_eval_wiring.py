@@ -4,6 +4,7 @@ No Isaac, no policy server, no GPU. The `--dry-run` paths print the resolved
 command without launching anything, so they are safe on Apple Silicon.
 Run:  python3 -m unittest discover -s tests -v   (from research_vla root)
 """
+
 import os
 import py_compile
 import subprocess
@@ -15,13 +16,15 @@ XPL_POLICY = os.path.join(ROBODOJO, "XPolicyLab", "policy")
 
 
 def run(cmd, cwd, timeout=120):
-    return subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout)
+    return subprocess.run(
+        cmd, cwd=cwd, capture_output=True, text=True, timeout=timeout, check=False
+    )
 
 
 def has_mapfile():
     # smoke_all_tasks.sh needs bash 4+ (mapfile); stock macOS ships bash 3.2.
     # `brew install bash` provides it; the Linux GPU box is unaffected.
-    r = subprocess.run(["bash", "-c", "type mapfile"], capture_output=True)
+    r = subprocess.run(["bash", "-c", "type mapfile"], capture_output=True, check=False)
     return r.returncode == 0
 
 
@@ -43,7 +46,11 @@ class TestShellSyntax(unittest.TestCase):
 
     def test_policy_scripts_parse(self):
         for policy in ["demo_policy", "OpenVLA_OFT"]:
-            for script in ["eval.sh", "setup_eval_policy_server.sh", "setup_eval_env_client.sh"]:
+            for script in [
+                "eval.sh",
+                "setup_eval_policy_server.sh",
+                "setup_eval_env_client.sh",
+            ]:
                 path = os.path.join("XPolicyLab", "policy", policy, script)
                 if not os.path.isfile(os.path.join(ROBODOJO, path)):
                     continue
@@ -55,11 +62,17 @@ class TestDryRunEval(unittest.TestCase):
     def test_eval_dry_run_resolves(self):
         r = run(
             [
-                "bash", "scripts/robodojo.sh", "eval",
-                "--policy-dir", "XPolicyLab/policy/demo_policy",
-                "--task", "stack_bowls",
-                "--ckpt", "demo",
-                "--policy-env", "demo-env",
+                "bash",
+                "scripts/robodojo.sh",
+                "eval",
+                "--policy-dir",
+                "XPolicyLab/policy/demo_policy",
+                "--task",
+                "stack_bowls",
+                "--ckpt",
+                "demo",
+                "--policy-env",
+                "demo-env",
                 "--dry-run",
             ],
             cwd=ROBODOJO,
@@ -67,15 +80,23 @@ class TestDryRunEval(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("stack_bowls", r.stdout + r.stderr)
 
-    @unittest.skipUnless(has_mapfile(), "needs bash 4+ (mapfile); stock macOS bash is 3.2")
+    @unittest.skipUnless(
+        has_mapfile(), "needs bash 4+ (mapfile); stock macOS bash is 3.2"
+    )
     def test_smoke_dry_run_resolves(self):
         r = run(
             [
-                "bash", "scripts/robodojo.sh", "smoke",
-                "--policy-dir", "XPolicyLab/policy/demo_policy",
-                "--ckpt", "demo",
-                "--policy-env", "demo-env",
-                "--only", "stack_bowls,push_T",
+                "bash",
+                "scripts/robodojo.sh",
+                "smoke",
+                "--policy-dir",
+                "XPolicyLab/policy/demo_policy",
+                "--ckpt",
+                "demo",
+                "--policy-env",
+                "demo-env",
+                "--only",
+                "stack_bowls,push_T",
                 "--dry-run",
             ],
             cwd=ROBODOJO,

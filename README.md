@@ -27,13 +27,15 @@ adapters, tests, templates, and docs; the simulators and models live upstream.
 | `templates/turbovla_finetune/` | TurboVLA-on-RoboDojo training: env-var launcher (`train.sh`), registry overlay (`data_registry/`), recipe (`configs/robodojo.yaml`), stats (`compute_stats.py`), eval-ready `deploy.robodojo.yml`. GPU box only. |
 | `OPENVLA_ROBODOJO_SETUP.md` | Full guide: what was pulled, why RoboDojo, Mac-verified steps, Linux GPU setup, every eval command, troubleshooting. |
 | `POLICIES_ROBODOJO.md` | Multi-model eval: registry, per-model setup, all `run_eval.sh` commands, adding the next model. |
+| `TURBOVLA_ROBODOJO_SIMPLE.md` | Plain-language overview: the course, the brain, and the glue between them. |
+| `PROGRESS_REPORT.md` | GRA status: wiring evidence, results skeleton, blockers/next steps. |
 | `REMOTE_ACCESS.md` | SSH into the Windows box from any network (OpenSSH server, key auth, Tailscale, troubleshooting). |
 | `CONTRIBUTING.md` | Branch/commit conventions, where each kind of work belongs, secrets handling, PR checklist. |
 | `setup.sh` | Reproduces the upstream checkouts at pinned commits + inits the XPolicyLab submodule. `--check` verifies pins without network writes. |
 | `Makefile` | Shortcuts: `test`, `setup`, `check`, `doctor`, `inventory`, `dry-run TASK=<t>`, `finetune-help`, `clean`. |
 | `.github/workflows/smoke.yml` | CI: restores checkouts via `setup.sh`, runs the smoke suite on every push/PR. |
 | `.github/pull_request_template.md` | PR front-matter: summary, test plan, checklist. |
-| `.pre-commit-config.yaml` | Whitespace/YAML hygiene, ruff on `tests/`+`templates/`, blocks >1 MB files (no weights in git). |
+| `.pre-commit-config.yaml` | Whitespace/YAML hygiene, ruff on `tests/`+`templates/`+`adapters/`, blocks >1 MB files (no weights in git). |
 
 ## Quickstart
 

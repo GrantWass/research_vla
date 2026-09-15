@@ -3,6 +3,7 @@
 Guards the templates/ folder without needing Isaac or the XPolicyLab tree.
 Run:  python3 -m unittest discover -s tests -v   (from research_vla root)
 """
+
 import os
 import py_compile
 import subprocess
@@ -51,6 +52,7 @@ class TestPolicyTemplate(unittest.TestCase):
                 capture_output=True,
                 text=True,
                 timeout=60,
+                check=False,
             )
             self.assertEqual(r.returncode, 0, f"{fname}: {r.stderr}")
 
@@ -78,6 +80,7 @@ class TestFinetuneTemplate(unittest.TestCase):
             capture_output=True,
             text=True,
             timeout=60,
+            check=False,
         )
         self.assertEqual(r.returncode, 0, r.stderr)
 

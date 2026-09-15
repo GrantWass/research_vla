@@ -41,7 +41,9 @@ def eval_one_episode_batch(TASK_ENV, model_client):
                 break
 
             running = set(TASK_ENV.get_running_env_idx_list())
-            active_batch_idx = [i for i, env_idx in enumerate(env_idx_list) if env_idx in running]
+            active_batch_idx = [
+                i for i, env_idx in enumerate(env_idx_list) if env_idx in running
+            ]
 
             actions = [actions[i] for i in active_batch_idx]
             env_idx_list = [env_idx_list[i] for i in active_batch_idx]

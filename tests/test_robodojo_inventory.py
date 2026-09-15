@@ -3,6 +3,7 @@
 Parses `task_inventory.py --format json --check` output; never imports Isaac.
 Run:  python3 -m unittest discover -s tests -v   (from research_vla root)
 """
+
 import json
 import os
 import subprocess
@@ -14,11 +15,18 @@ ROBODOJO = os.path.join(ROOT, "RoboDojo")
 
 def run_inventory():
     out = subprocess.run(
-        ["python3", "scripts/internal/task_inventory.py", "--format", "json", "--check"],
+        [
+            "python3",
+            "scripts/internal/task_inventory.py",
+            "--format",
+            "json",
+            "--check",
+        ],
         cwd=ROBODOJO,
         capture_output=True,
         text=True,
         timeout=120,
+        check=False,
     )
     assert out.returncode == 0, f"task_inventory failed:\n{out.stderr}"
     return json.loads(out.stdout)

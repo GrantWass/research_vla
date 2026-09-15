@@ -20,6 +20,7 @@ such subdir of `ROBODOJO_DATA_ROOT` is used.
 
 import os
 from pathlib import Path
+from typing import ClassVar
 
 from starVLA.dataloader.gr00t_lerobot.datasets import ModalityConfig
 from starVLA.dataloader.gr00t_lerobot.transform.base import ComposedModalityTransform
@@ -32,22 +33,26 @@ from starVLA.dataloader.gr00t_lerobot.transform.state_action import (
 class RoboDojoArxX5DataConfig:
     """Three-camera, dual-arm (dual_x5) RoboDojo data, 50-step action horizon."""
 
-    video_keys = ["video.cam_high", "video.cam_left_wrist", "video.cam_right_wrist"]
-    state_keys = [
+    video_keys: ClassVar[list] = [
+        "video.cam_high",
+        "video.cam_left_wrist",
+        "video.cam_right_wrist",
+    ]
+    state_keys: ClassVar[list] = [
         "state.left_joints",
         "state.right_joints",
         "state.left_gripper",
         "state.right_gripper",
     ]
-    action_keys = [
+    action_keys: ClassVar[list] = [
         "action.left_joints",
         "action.right_joints",
         "action.left_gripper",
         "action.right_gripper",
     ]
-    language_keys = ["annotation.human.action.task_description"]
-    observation_indices = [0]
-    action_indices = list(range(50))
+    language_keys: ClassVar[list] = ["annotation.human.action.task_description"]
+    observation_indices: ClassVar[list] = [0]
+    action_indices: ClassVar[list] = list(range(50))
 
     def modality_config(self):
         return {
@@ -107,7 +112,8 @@ def _discover_tasks() -> list:
     root = os.environ.get("ROBODOJO_DATA_ROOT", "").strip()
     if root:
         found = sorted(
-            p.name for p in Path(root).iterdir()
+            p.name
+            for p in Path(root).iterdir()
             if p.is_dir() and (p / "meta" / "info.json").is_file()
         )
         if found:
@@ -115,7 +121,8 @@ def _discover_tasks() -> list:
     raise RuntimeError(
         "No RoboDojo tasks: set ROBODOJO_TASKS='task_a,task_b' or point "
         "ROBODOJO_DATA_ROOT at a dir of LeRobot datasets (each with "
-        "meta/info.json). See templates/turbovla_finetune/README.md.")
+        "meta/info.json). See templates/turbovla_finetune/README.md."
+    )
 
 
 ROBOT_TYPE = "robodojo_arx_x5"
