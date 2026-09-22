@@ -15,6 +15,7 @@ import filecmp
 import os
 import py_compile
 import subprocess
+import tempfile
 import unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -106,9 +107,7 @@ class TestPolicyRegistry(unittest.TestCase):
     def test_action_type_values_valid(self):
         # A conf typo here would only surface on the GPU box; fail here.
         for name, conf in self.confs.items():
-            self.assertIn(
-                conf.get("ACTION_TYPE"), ["joint", "ee"], f"{name}.conf"
-            )
+            self.assertIn(conf.get("ACTION_TYPE"), ["joint", "ee"], f"{name}.conf")
 
     def test_policy_dir_shape(self):
         for name, conf in self.confs.items():
@@ -202,7 +201,7 @@ class TestRunEvalWrapper(unittest.TestCase):
             )
             self.assertEqual(r.returncode, 0, r.stderr)
             outs[policy] = r.stdout + r.stderr
-        self.assertIn("openvla-oft", outs["openvla"])
+        self.assertIn("openvla_oft", outs["openvla"])
         self.assertIn("turbovla-robodojo", outs["turbovla"])
         self.assertIn(" 0 uv ", outs["pi05"])  # uv env marker, not a conda env
         for out in outs.values():
@@ -230,6 +229,40 @@ class TestRunEvalWrapper(unittest.TestCase):
         self.assertIn("dual_x5", out)
         self.assertIn(" ee ", out)
 
+    def test_smoke_mode_forwards_conf_action_type(self):
+        # Regression: smoke/benchmark dropped --env-cfg/--action-type, so
+        # robodojo.sh fell back to `ee` and drove joint-space ckpts wrongly.
+        # (--dry-run would switch run_eval.sh to dry-run mode, so stub the
+        # harness instead and read the args it receives.)
+        with tempfile.TemporaryDirectory() as tmp:
+            stub = os.path.join(tmp, "robodojo.sh")
+            with open(stub, "w") as f:
+                f.write('echo "ARGS: $*"\n')
+            for mode in ["smoke", "benchmark"]:
+                with self.subTest(mode=mode):
+                    r = subprocess.run(
+                        [
+                            "bash",
+                            "scripts/run_eval.sh",
+                            "--policy",
+                            "openvla",
+                            "--task",
+                            "stack_bowls",
+                            "--mode",
+                            mode,
+                        ],
+                        cwd=ROOT,
+                        capture_output=True,
+                        text=True,
+                        timeout=120,
+                        env={**os.environ, "ROBODOJO_SH": stub},
+                        check=False,
+                    )
+                    self.assertEqual(r.returncode, 0, r.stderr)
+                    self.assertIn(f"ARGS: {mode} ", r.stdout)
+                    self.assertIn("--action-type joint", r.stdout)
+                    self.assertIn("--env-cfg arx_x5", r.stdout)
+
     def test_unknown_policy_fails_with_hint(self):
         r = run(
             [
@@ -245,7 +278,9 @@ class TestRunEvalWrapper(unittest.TestCase):
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("Unknown policy", r.stderr)
 
-    def test_install_adapter_noop_for_upstream_policies(self):        # Upstream adapters (openvla/demo/pi05) ship with XPolicyLab:
+    def test_install_adapter_noop_for_upstream_policies(
+        self,
+    ):  # Upstream adapters (openvla/demo/pi05) ship with XPolicyLab:
         # install must succeed as a no-op, so `make install-adapter`
         # never blocks the one-flag swap story.
         for policy in ["openvla", "demo", "pi05"]:

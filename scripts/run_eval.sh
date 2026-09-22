@@ -25,7 +25,8 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 POLICIES_DIR="${ROOT}/policies"
-ROBODOJO_SH="${ROOT}/RoboDojo/scripts/robodojo.sh"
+# Overridable so tests can stub the harness and inspect the forwarded args.
+ROBODOJO_SH="${ROBODOJO_SH:-${ROOT}/RoboDojo/scripts/robodojo.sh}"
 
 usage() {
   cat <<'EOF'
@@ -172,7 +173,8 @@ case "${MODE}" in
     exec bash "${ROBODOJO_SH}" "${args[@]}" ${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"}
     ;;
   smoke|benchmark)
-    args=("${MODE}" "${common[@]}" --seed "${SEED}")
+    args=("${MODE}" "${common[@]}"
+      --env-cfg "${ENV_CFG}" --action-type "${ACTION_TYPE}" --seed "${SEED}")
     [[ -n "${TASK}" ]] && args+=(--only "${TASK}")
     exec bash "${ROBODOJO_SH}" "${args[@]}" ${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"}
     ;;

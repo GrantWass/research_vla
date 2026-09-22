@@ -21,7 +21,7 @@ make dry-run POLICY=pi05 TASK=stack_bowls
 
 | `--policy` | What | Adapter | Env | Status |
 |---|---|---|---|---|
-| `openvla` (default) | OpenVLA-OFT 7B, LLM-centric baseline | Upstream `XPolicyLab/policy/OpenVLA_OFT` | `openvla-oft` (conda) | Full eval path (needs trained ckpt) |
+| `openvla` (default) | OpenVLA-OFT 7B, LLM-centric baseline | Upstream `XPolicyLab/policy/OpenVLA_OFT` | `openvla_oft` (conda) | Full eval path (needs trained ckpt) |
 | `turbovla` | TurboVLA 0.2B, direct V+L→A, 32 Hz / <1 GB VRAM (RTX 4090) | This-repo `adapters/turbovla_robodojo/` → installed to `XPolicyLab/policy/TurboVLA` | `turbovla-robodojo` (conda) | Train via `templates/turbovla_finetune/` (same LeRobot schema, no data rewrite), then eval |
 | `pi05` | pi0.5 base VLA (Physical Intelligence, open-world generalization) | Upstream `XPolicyLab/policy/Pi_05` (openpi vendored inside) | `uv` (uv-managed, not conda) | Train via the adapter's `process_data.sh` + `train.sh`, then eval |
 | `demo` | Zero-action stub | Upstream `XPolicyLab/policy/demo_policy` | `RoboDojo` (conda) | Wiring smoke test only |

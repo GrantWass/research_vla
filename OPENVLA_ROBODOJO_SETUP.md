@@ -43,7 +43,7 @@ bash -n scripts/robodojo.sh scripts/eval_policy.sh          # syntax OK
 python3 scripts/internal/task_inventory.py --format json --check  # runnable: 54, missing: 0
 bash scripts/robodojo.sh doctor --skip-isaac --skip-conda --skip-policy  # 7 pass; expected FAILs: Assets/* missing, env_cfg refs (no pyyaml)
 bash scripts/robodojo.sh eval --policy-dir XPolicyLab/policy/OpenVLA_OFT \
-  --task stack_bowls --ckpt demo --policy-env openvla-oft --dry-run  # exit 0
+  --task stack_bowls --ckpt demo --policy-env openvla_oft --dry-run  # exit 0
 
 cd ../openvla
 python3 -m py_compile vla-scripts/deploy.py vla-scripts/finetune.py \
@@ -86,7 +86,7 @@ bash scripts/RoboDojo/download_ckpt.sh huggingface Pi_0                  # -> XP
 # 4. OpenVLA policy env (example: OpenVLA-OFT adapter)
 cd XPolicyLab/policy/OpenVLA_OFT
 bash install.sh
-conda activate openvla-oft  # env name per adapter README; see its install.sh
+conda activate openvla_oft  # env name per adapter README; see its install.sh
 cd ../../..  # back to RoboDojo root
 
 # 5. Verify
@@ -163,34 +163,34 @@ bash scripts/robodojo.sh dimensions
 
 # dry-run first (no sim, no server) — works on Mac too
 bash scripts/robodojo.sh eval --policy-dir XPolicyLab/policy/OpenVLA_OFT \
-  --task stack_bowls --ckpt <CKPT> --policy-env openvla-oft --eval-num 1 --dry-run
+  --task stack_bowls --ckpt <CKPT> --policy-env openvla_oft --eval-num 1 --dry-run
 
 # single task, same machine (server + sim client on localhost)
 bash scripts/robodojo.sh eval --policy-dir XPolicyLab/policy/OpenVLA_OFT \
-  --task stack_bowls --ckpt <CKPT> --policy-env openvla-oft --eval-num 1
+  --task stack_bowls --ckpt <CKPT> --policy-env openvla_oft --eval-num 1
 # common opts: --env-cfg arx_x5 (default) --seed 0 --action-type ee --expert-num 100
 
 # smoke (install/policy validation; EVAL_NUM=1 default; require exit 0 + _result.json with eval_time>=1)
 bash scripts/robodojo.sh smoke --policy-dir XPolicyLab/policy/OpenVLA_OFT \
-  --ckpt <CKPT> --policy-env openvla-oft --fail-fast
+  --ckpt <CKPT> --policy-env openvla_oft --fail-fast
 bash scripts/robodojo.sh smoke --policy-dir XPolicyLab/policy/OpenVLA_OFT \
-  --ckpt <CKPT> --policy-env openvla-oft --only stack_bowls,push_T
+  --ckpt <CKPT> --policy-env openvla_oft --only stack_bowls,push_T
 bash scripts/robodojo.sh smoke --policy-dir XPolicyLab/policy/OpenVLA_OFT \
-  --ckpt <CKPT> --policy-env openvla-oft --dimension memory
+  --ckpt <CKPT> --policy-env openvla_oft --dimension memory
 
 # full benchmark: 54 tasks x 3 seeds x native counts (non-general 50, general base/_random 25)
 bash scripts/robodojo.sh benchmark --policy-dir XPolicyLab/policy/OpenVLA_OFT \
-  --ckpt <CKPT> --policy-env openvla-oft --eval-num native --seed 0   # repeat seeds 1, 2
+  --ckpt <CKPT> --policy-env openvla_oft --eval-num native --seed 0   # repeat seeds 1, 2
 bash scripts/robodojo.sh benchmark --policy-dir XPolicyLab/policy/OpenVLA_OFT \
-  --ckpt <CKPT> --policy-env openvla-oft --eval-num native --dimension generalization
+  --ckpt <CKPT> --policy-env openvla_oft --eval-num native --dimension generalization
 # balanced multi-GPU instead of manual shards:
 bash scripts/robodojo.sh benchmark --policy-dir XPolicyLab/policy/OpenVLA_OFT \
-  --ckpt <CKPT> --policy-env openvla-oft --eval-num native --gpu-ids 0,1,3
+  --ckpt <CKPT> --policy-env openvla_oft --eval-num native --gpu-ids 0,1,3
 bash scripts/robodojo.sh summarize   # -> eval_result/RoboDojo/_summary.md
 
 # split machines / container boundary (server binds 0.0.0.0, client dials it)
 bash scripts/robodojo.sh server --policy-dir XPolicyLab/policy/OpenVLA_OFT \
-  --task stack_bowls --ckpt <CKPT> --policy-env openvla-oft --policy-port 9999 --bind-host 0.0.0.0
+  --task stack_bowls --ckpt <CKPT> --policy-env openvla_oft --policy-port 9999 --bind-host 0.0.0.0
 bash scripts/robodojo.sh client --policy-dir XPolicyLab/policy/OpenVLA_OFT \
   --task stack_bowls --policy-host <POLICY_IP> --policy-port 9999 \
   --ckpt <CKPT> --action-type ee --eval-num 1
@@ -202,7 +202,7 @@ Results: per-task `eval_result/RoboDojo/<task>/<policy>/<env_cfg>/<seed>_<info>/
 
 ```bash
 cd RoboDojo/XPolicyLab/policy/OpenVLA_OFT
-bash install.sh && conda activate openvla-oft
+bash install.sh && conda activate openvla_oft
 python scripts/download_openvla.py          # base openvla-7b -> checkpoints/shared/openvla-7b
 bash train.sh RoboDojo cotrain arx_x5 joint 0 0            # <bench> <ckpt> <env> <action> <seed> <gpu>
 bash eval.sh RoboDojo stack_bowls RoboDojo-cotrain-arx_x5-joint-0 arx_x5 joint 0 0 0 <policy_env> <sim_env>
@@ -245,6 +245,8 @@ Key `deploy.yml` knobs: `base_model_path`, `use_film`, `use_l1_regression`, `use
 - `doctor` FAIL `env_cfg references` / `No module named 'yaml'`: system Python lacks deps — use the `RoboDojo` conda env on the GPU box.
 - Isaac Sim crash / driver errors: use tested driver **580.65.06** (not 595.x), CUDA 12.8, `vulkaninfo` must work.
   Confirmed on the RTX 4070 Ti SUPER box (Ubuntu 24.04, kernel 7.0 HWE): 595.91 segfaults in `librtx.scenedb.plugin.so` right after "app ready"; hiding the AMD iGPU via `VK_ICD_FILENAMES` does not help. `sudo apt install nvidia-driver-580 linux-modules-nvidia-580-generic-hwe-24.04` (Canonical-signed, no MOK re-enroll) + reboot fixes it; 580.178.04 passes `make smoke POLICY=demo TASK=stack_bowls`.
+- `OpenVLA_OFT/install.sh` fails on `flash-attn==2.5.5` (`CUDA_HOME` not set) and leaves an env with incompatible deps. Working `openvla_oft` env (torch 2.2.0+cu121): install the prebuilt wheel `flash_attn-2.5.5+cu122torch2.2cxx11abiFALSE-cp310-cp310-linux_x86_64.whl` from the flash-attention v2.5.5 GitHub release, then pin `numpy==1.26.4 opencv-python-headless==4.11.0.86 protobuf==3.20.3 tensorflow-metadata==1.14.0 wandb==0.17.9 accelerate==0.30.1 bitsandbytes==0.43.3` (`pip check` clean). Run eval with the `RoboDojo` env active: the env-client launcher calls bare `python` before activating anything.
+- 16 GB GPU (RTX 4070 Ti SUPER): OpenVLA-OFT 7B + Isaac Sim do **not** fit on one card. bf16 OOMs at load (15.2 GB, no sim); 8-bit peaks 11.7 GB and Isaac OOMs; 4-bit (LLM only) peaks 9.2 GB and Isaac still OOMs loading textures at 6.4 GB. `EVAL_ENV_TYPE=debug` eval passes in 8-bit and 4-bit, so model + server wiring is verified. Quantized loading needs `patches/xpolicylab_openvla_oft_lowvram.patch` (upstream bugs: FiLM backbone left on CPU; 4-bit packing breaks the FiLM state_dict). For sim evals use a 24 GB+ GPU, or split: policy server on a bigger GPU, sim client here (`robodojo.sh server --bind-host 0.0.0.0` / `client --policy-host`).
 - `install.sh -i` step `submodules` runs `git submodule update --remote`, which moves XPolicyLab off the `setup.sh` pin. On a fresh box: `git submodule update --init third_party/IsaacLab third_party/curobo`, create the env by hand (steps `conda` + `base_deps`), then `bash scripts/install.sh --from isaacsim`.
 - `ValueError: ... X5A.urdf is not a file` in Docker: you skipped the dual Assets mount — follow §8.6 of the install doc (mount `$PWD/Assets` at both container and absolute-host paths) plus cache mounts.
 - OpenVLA near-100% `action_accuracy` when FT on BridgeData V2 with `--image_aug False`: expected (pretrained on a superset incl. Bridge V2) — not a bug.
