@@ -9,13 +9,14 @@ upstream `RoboDojo/` tree is never edited by hand.
 ## Install (once per machine)
 
 ```bash
-bash setup.sh                              # pins openvla/, turbovla/, RoboDojo/
-bash scripts/install_adapter.sh turbovla   # copy adapter -> RoboDojo/XPolicyLab/policy/TurboVLA/
-
-# GPU box (Ubuntu 22.04 + CUDA):
-cd RoboDojo/XPolicyLab/policy/TurboVLA
-bash install.sh && conda activate turbovla-robodojo
+bash setup.sh                                          # pins openvla/, turbovla/, RoboDojo/
+bash scripts/setup_policy.sh turbovla --robotwin-smoke # GPU box: adapter + env + ckpts + DINOv3/BERT
 ```
+
+`setup_policy.sh` runs `install_adapter.sh` and this adapter's `install.sh`,
+downloads DINOv3 ViT-L (gated: accept the license on Hugging Face and save a
+read token first, see `GPU_BOX_SETUP.md` §4) and BERT. With `--robotwin-smoke`
+it also installs `deploy.robotwin_smoke.yml` as the adapter's `deploy.yml`.
 
 ## Run (model swap is one flag)
 
@@ -25,24 +26,26 @@ bash scripts/run_eval.sh --policy turbovla --task stack_bowls --mode smoke --fai
 bash scripts/run_eval.sh --policy openvla  --task stack_bowls --dry-run   # back to OpenVLA
 ```
 
-## Status: wiring vs. weights
+## Status: wiring verified in Isaac Sim
 
-- **Wiring is done**: `model.py` implements the `ModelTemplate` contract
-  (`update_obs` / `get_action` / `reset`), serves TurboVLA action chunks
-  open-loop (`num_open_loop_steps`), and packs/unpacks RoboDojo robot state.
-- **Weights come from `templates/turbovla_finetune/`**: train on RoboDojo's
-  `lerobot_v3.0_ee` data (same LeRobot schema the recipe expects — no data
-  rewrite), compute stats, copy `deploy.robodojo.yml` over this `deploy.yml`,
-  and point `--ckpt` at the run dir. Released LIBERO/RoboTwin ckpts do **not**
-  transfer (different dims/proprio) and fail fast here by design.
+- **Wiring is verified end to end.** With the released RoboTwin ckpt
+  (`deploy.robotwin_smoke.yml`), a `stack_bowls` smoke run passes in Isaac Sim
+  and both arms and grippers move, so observations, all 3 cameras, the 14-D
+  dual-arm state and actions, and the server/client loop all work. The
+  motions aren't task-meaningful because that ckpt was trained on a different robot.
+- **Real weights come from `templates/turbovla_finetune/`**: train on RoboDojo's
+  `lerobot_v3.0_ee` data (same LeRobot schema, no data rewrite), compute
+  stats, copy `deploy.robodojo.yml` over this `deploy.yml`, and point `--ckpt`
+  at the run dir.
 
-What happens with a released ckpt today:
+Checkpoint handling:
 
 | Ckpt | Result |
 |---|---|
-| LIBERO `.pth` | Fails fast with `Packed state dim ... != ckpt state_dim` — correct: the LIBERO proprio convention does not transfer. |
-| `dual_arm_mode: first_arm` | Drives arm 0 with a 7-D ckpt, holds arm 1 at zero. Smoke-test only, never benchmark with this. |
-| RoboDojo-finetuned run dir | Full eval path. Collect RoboDojo demos → train TurboVLA → point `--ckpt` at the run dir + `stats_path` at its stats JSON. |
+| RoboDojo-finetuned run dir | Full eval path (`action_layout: packed`). |
+| RoboTwin `.safetensors` (released) | Loads: legacy module names are remapped, `learned_patch` position embeddings detected, `action_layout: arms_first` reorders RoboTwin's `[arm_0, arm_1, ee_0, ee_1]` to RoboDojo's `[arm_0, ee_0, arm_1, ee_1]`, and unnormalized grippers (stats `mask`) pass through. Smoke only. |
+| LIBERO `.pth` | Fails fast with `Packed state dim ... != ckpt state_dim`, which is correct: the LIBERO proprio convention doesn't transfer. |
+| Any 7-D single-arm ckpt + `dual_arm_mode: first_arm` | Drives arm 0, holds arm 1 at zero. Smoke only. |
 
 The fail-fast errors name the exact knob to change, so a dimension mismatch
 can never silently corrupt metrics.
@@ -51,14 +54,9 @@ can never silently corrupt metrics.
 
 | File | Role |
 |---|---|
-| `model.py` | `ModelTemplate` impl: ckpt load (EMA-aware), DINOv3 resize+normalize, proprio normalize, chunk infer, min/max arm denorm + gripper sign rule (mirrors upstream `turbovla/evaluation/policy.py`), `unpack_robot_state` to env dicts. |
-| `deploy.yml` | All knobs (`dinov3_path`, `bert_path`, `checkpoint_path`, `stats_path`, `num_views`, `chunk_size`, `state_dim`, `action_dim`, `dual_arm_mode`, ...). Null = env var / workspace default. |
+| `model.py` | `ModelTemplate` impl: ckpt load (EMA-aware, `.pth` or `.safetensors`, legacy key remap), N-view (head/left/right wrist) input, DINOv3 resize+normalize, proprio normalize, chunk infer, min/max arm denorm + gripper sign rule (mirrors upstream `turbovla/evaluation/policy.py`), `unpack_robot_state` to env dicts. |
+| `deploy.yml` | All knobs (`dinov3_path`, `bert_path`, `checkpoint_path`, `stats_path`, `num_views`, `chunk_size`, `state_dim`, `action_dim`, `action_layout`, `dual_arm_mode`, ...). Null = env var / workspace default. |
+| `deploy.robotwin_smoke.yml` | Sim-wiring smoke config for the released RoboTwin ckpt (`@SHARED@` filled in by `setup_policy.sh --robotwin-smoke`). |
+| `deploy.py` | Env-side episode loop (`eval_one_episode[_batch]`), same as upstream `demo_policy`. |
 | `eval.sh`, `setup_eval_policy_server.sh`, `setup_eval_env_client.sh` | Standard XPolicyLab launchers (same protocol as `SmolVLA`/`OpenVLA_OFT`). |
 | `install.sh` | GPU-box env: `turbovla-robodojo` conda env, torch cu121, editable installs, `hf download H-EmbodVis/TurboVLA`. |
-
-## Closest zero-shot candidate (unverified)
-
-The RoboTwin `.safetensors` ckpt (3 views, 14-D joint actions) is dimensionally
-closest to `dual_x5` joint mode (3 RoboDojo cameras, packed dim 14). It still
-needs its `state_dim`/stats to line up — verify `deploy.yml` against the
-ckpt config before trusting any rollout.

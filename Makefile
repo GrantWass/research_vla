@@ -1,4 +1,4 @@
-.PHONY: help test test-verbose setup check clean doctor inventory dry-run eval smoke policies install-adapter finetune-help
+.PHONY: help test test-verbose setup check clean doctor inventory dry-run eval smoke smoke-all policies install-adapter setup-policy lowvram finetune-help
 .DEFAULT: help
 
 # Model selector: make dry-run POLICY=turbovla TASK=stack_bowls
@@ -19,6 +19,9 @@ help:
 	@echo "make eval POLICY=<p> TASK=<task> [CKPT=<c>]     Run one eval (GPU box)"
 	@echo "make smoke POLICY=<p> [TASK=<t>] [CKPT=<c>]     Run smoke (GPU box)"
 	@echo "make install-adapter POLICY=<p>  Copy this-repo adapter into XPolicyLab"
+	@echo "make setup-policy POLICY=<p>     Policy env + ckpt on the GPU box (scripts/setup_policy.sh)"
+	@echo "make lowvram ARGS=apply|revert|status  16 GB GPU profile (scripts/lowvram.sh)"
+	@echo "make smoke-all [TASK=<t>]         Sim smoke for every policy, pass/fail table (GPU box)"
 	@echo "make finetune-help Show OpenVLA LoRA fine-tune template usage"
 	@echo "make clean         Remove pyc/pycache files"
 
@@ -63,6 +66,26 @@ endif
 
 smoke:
 	bash scripts/run_eval.sh --policy $(POLICY) $(if $(TASK),--task $(TASK)) $(if $(CKPT),--ckpt $(CKPT)) --mode smoke --fail-fast
+
+# Every registered model through Isaac Sim once; keeps going past failures.
+SMOKE_POLICIES ?= demo openvla pi05 turbovla
+smoke-all:
+	@task=$${TASK:-stack_bowls}; fail=0; rows=""; \
+	for p in $(SMOKE_POLICIES); do \
+	  echo "=== smoke $$p ($$task) ==="; \
+	  if bash scripts/run_eval.sh --policy $$p --task $$task --mode smoke --fail-fast; \
+	  then rows="$$rows\n  PASS  $$p"; else rows="$$rows\n  FAIL  $$p"; fail=1; fi; \
+	done; \
+	printf "smoke-all ($$task):$$rows\n"; exit $$fail
+
+setup-policy:
+ifndef POLICY
+	$(error Usage: make setup-policy POLICY=<demo|openvla|pi05|turbovla>)
+endif
+	bash scripts/setup_policy.sh $(POLICY) $(ARGS)
+
+lowvram:
+	bash scripts/lowvram.sh $(or $(ARGS),status)
 
 finetune-help:
 	@echo "OpenVLA LoRA:   see templates/openvla_finetune/README.md"

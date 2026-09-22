@@ -1,0 +1,28 @@
+diff --git a/env_cfg/sim/sim_config.yml b/env_cfg/sim/sim_config.yml
+index fde7dc4..43bffe1 100644
+--- a/env_cfg/sim/sim_config.yml
++++ b/env_cfg/sim/sim_config.yml
+@@ -4,3 +4,23 @@ render_interval: 10
+ scene:
+   num_envs: 10
+   env_spacing: 7
++# LOCAL low-VRAM render profile (16 GB GPU shared with a 7B policy server).
++render:
++  rendering_mode: performance
++  antialiasing_mode: "Off"
++  enable_translucency: false
++  enable_reflections: false
++  enable_global_illumination: false
++  enable_dl_denoiser: false
++  enable_ambient_occlusion: false
++  carb_settings:
++    /rtx-transient/resourcemanager/enableTextureStreaming: true
++    /rtx-transient/resourcemanager/texturestreaming/memoryBudget: 0.1
++# LOCAL: PhysX GPU buffers sized for num_envs=1 eval (defaults target 10 envs).
++physx:
++  gpu_max_rigid_contact_count: 1048576
++  gpu_max_rigid_patch_count: 81920
++  gpu_found_lost_pairs_capacity: 262144
++  gpu_found_lost_aggregate_pairs_capacity: 4194304
++  gpu_total_aggregate_pairs_capacity: 262144
++  gpu_collision_stack_size: 33554432

@@ -54,6 +54,8 @@ Expected `doctor` FAILs on a fresh clone: `Assets/Robots`, `Assets/Object/RoboDo
 
 ## 4. Full setup (Linux GPU machine, Ubuntu 22.04 x64 + RTX)
 
+> Verified, scripted version of this section (driver 580, Ubuntu 24.04, all four policies): `GPU_BOX_SETUP.md`.
+
 Run on the GPU box, not the Mac. Sync this folder over (`openvla/`, `RoboDojo/` incl. initialized `XPolicyLab/`), or re-clone there.
 
 ```bash
@@ -246,7 +248,7 @@ Key `deploy.yml` knobs: `base_model_path`, `use_film`, `use_l1_regression`, `use
 - Isaac Sim crash / driver errors: use tested driver **580.65.06** (not 595.x), CUDA 12.8, `vulkaninfo` must work.
   Confirmed on the RTX 4070 Ti SUPER box (Ubuntu 24.04, kernel 7.0 HWE): 595.91 segfaults in `librtx.scenedb.plugin.so` right after "app ready"; hiding the AMD iGPU via `VK_ICD_FILENAMES` does not help. `sudo apt install nvidia-driver-580 linux-modules-nvidia-580-generic-hwe-24.04` (Canonical-signed, no MOK re-enroll) + reboot fixes it; 580.178.04 passes `make smoke POLICY=demo TASK=stack_bowls`.
 - `OpenVLA_OFT/install.sh` fails on `flash-attn==2.5.5` (`CUDA_HOME` not set) and leaves an env with incompatible deps. Working `openvla_oft` env (torch 2.2.0+cu121): install the prebuilt wheel `flash_attn-2.5.5+cu122torch2.2cxx11abiFALSE-cp310-cp310-linux_x86_64.whl` from the flash-attention v2.5.5 GitHub release, then pin `numpy==1.26.4 opencv-python-headless==4.11.0.86 protobuf==3.20.3 tensorflow-metadata==1.14.0 wandb==0.17.9 accelerate==0.30.1 bitsandbytes==0.43.3` (`pip check` clean). Run eval with the `RoboDojo` env active: the env-client launcher calls bare `python` before activating anything.
-- 16 GB GPU (RTX 4070 Ti SUPER): OpenVLA-OFT 7B + Isaac Sim do **not** fit on one card. bf16 OOMs at load (15.2 GB, no sim); 8-bit peaks 11.7 GB and Isaac OOMs; 4-bit (LLM only) peaks 9.2 GB and Isaac still OOMs loading textures at 6.4 GB. `EVAL_ENV_TYPE=debug` eval passes in 8-bit and 4-bit, so model + server wiring is verified. Quantized loading needs `patches/xpolicylab_openvla_oft_lowvram.patch` (upstream bugs: FiLM backbone left on CPU; 4-bit packing breaks the FiLM state_dict). For sim evals use a 24 GB+ GPU, or split: policy server on a bigger GPU, sim client here (`robodojo.sh server --bind-host 0.0.0.0` / `client --policy-host`).
+- 16 GB GPU (RTX 4070 Ti SUPER): OpenVLA-OFT 7B + default Isaac Sim do not fit (bf16 OOMs at load; 8-bit 11.7 GB leaves too little for the sim's 7.7 GB). `bash scripts/lowvram.sh apply` (4-bit LLM + cheaper sim rendering, 9.2 + 5.7 GB) makes the smoke pass; details and measurements in `GPU_BOX_SETUP.md` §5.
 - `install.sh -i` step `submodules` runs `git submodule update --remote`, which moves XPolicyLab off the `setup.sh` pin. On a fresh box: `git submodule update --init third_party/IsaacLab third_party/curobo`, create the env by hand (steps `conda` + `base_deps`), then `bash scripts/install.sh --from isaacsim`.
 - `ValueError: ... X5A.urdf is not a file` in Docker: you skipped the dual Assets mount — follow §8.6 of the install doc (mount `$PWD/Assets` at both container and absolute-host paths) plus cache mounts.
 - OpenVLA near-100% `action_accuracy` when FT on BridgeData V2 with `--image_aug False`: expected (pretrained on a superset incl. Bridge V2) — not a bug.

@@ -1,0 +1,44 @@
+# TurboVLA deploy.yml for a SIM-WIRING SMOKE TEST with the released RoboTwin
+# checkpoint (H-EmbodVis/TurboVLA). Installed over the adapter's deploy.yml by
+#   bash scripts/setup_policy.sh turbovla --robotwin-smoke
+# (@SHARED@ -> RoboDojo/XPolicyLab/policy/TurboVLA/checkpoints/shared).
+#
+# The RoboTwin ckpt matches dual_x5 dimensionally (3 views, 14-D joint) but was
+# trained on a different robot: it proves observations, both arms and grippers
+# are wired end to end in Isaac Sim. Never report metrics from it — train on
+# RoboDojo data (templates/turbovla_finetune/) and use deploy.robodojo.yml.
+policy_name: TurboVLA
+protocol: ws
+host: localhost
+port: 6000
+bench_name: null
+task_name: null
+ckpt_name: null
+env_cfg_type: null
+action_type: joint
+seed: null
+eval_batch: false
+
+checkpoint_num: null
+result_dir: "./results/TurboVLA/"
+obs_transform_pipeline: null
+
+turbovla_repo: null
+dinov3_path: @SHARED@/dinov3-vitl16      # RoboTwin ckpt was trained with ViT-L
+bert_path: @SHARED@/bert-base-uncased
+checkpoint_path: @SHARED@/checkpoints/robotwin/steps_55000_ema_model.safetensors
+stats_path: @SHARED@/dataset_statistics.json
+stats_key: new_embodiment
+
+num_views: 3
+image_size: 224
+chunk_size: 50
+num_open_loop_steps: 50
+state_dim: 14
+action_dim: 14
+device: cuda
+precision: bf16
+
+# RoboTwin vectors are [arm_0, arm_1, ee_0, ee_1]; RoboDojo packs [arm_0, ee_0, arm_1, ee_1].
+action_layout: arms_first
+dual_arm_mode: error

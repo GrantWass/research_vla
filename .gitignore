@@ -33,3 +33,6 @@ venv/
 .DS_Store
 .vscode/
 .idea/
+
+# Local small-GPU profile (scripts/lowvram.sh)
+.lowvram.env

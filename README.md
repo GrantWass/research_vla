@@ -8,7 +8,8 @@ This repo is a thin layer over upstream clones — we own the policy registry,
 adapters, tests, templates, and docs; the simulators and models live upstream.
 
 > Hardware note: full simulation needs a Linux box with an NVIDIA RTX GPU
-> (Ubuntu 22.04, driver 570/580, 32 GB RAM, 16 GB VRAM). Everything marked
+> (verified: Ubuntu 24.04, **driver 580**, 32 GB RAM, 16 GB VRAM with
+> `scripts/lowvram.sh`). Bring-up guide: `GPU_BOX_SETUP.md`. Everything marked
 > "Mac-safe" below runs on Apple Silicon with system Python and no GPU.
 
 ## What everything is
@@ -25,6 +26,10 @@ adapters, tests, templates, and docs; the simulators and models live upstream.
 | `templates/xpolicylab_policy/` | Skeleton for a new policy adapter (`eval.sh`, `deploy.yml`, server/client launchers, `model.py`, eval loop, `install.sh`). Mirrors `demo_policy`. |
 | `templates/openvla_finetune/` | LoRA fine-tune launcher (`finetune_lora.sh`, env-var configured) + checklist (routes, dataset registration, data-collection rules, sanity checks). GPU box only. |
 | `templates/turbovla_finetune/` | TurboVLA-on-RoboDojo training: env-var launcher (`train.sh`), registry overlay (`data_registry/`), recipe (`configs/robodojo.yaml`), stats (`compute_stats.py`), eval-ready `deploy.robodojo.yml`. GPU box only. |
+| `GPU_BOX_SETUP.md` | **Start here on a GPU box.** Fresh Linux → driver 580 → Isaac Sim → all four policies → `make smoke-all`, with measured VRAM, the verified-status table, and troubleshooting for every failure hit so far. |
+| `scripts/setup_policy.sh` | One idempotent command per policy (`openvla`, `pi05`, `turbovla`, `demo`): env, checkpoint, and the fixes the upstream installers need. |
+| `scripts/lowvram.sh` | `apply`/`revert`/`status` for the 16 GB GPU profile (cheaper sim rendering and PhysX buffers, 4-bit OpenVLA, JAX/PyTorch memory env). |
+| `patches/` | Upstream fixes applied by the two scripts above; `make test` checks they still apply to the pinned checkouts. |
 | `OPENVLA_ROBODOJO_SETUP.md` | Full guide: what was pulled, why RoboDojo, Mac-verified steps, Linux GPU setup, every eval command, troubleshooting. |
 | `POLICIES_ROBODOJO.md` | Multi-model eval: registry, per-model setup, all `run_eval.sh` commands, adding the next model. |
 | `POLICIES_ROBODOJO_SIMPLE.md` | Plain-language overview: the course, the brains (TurboVLA + pi0.5), and the glue between them. |
@@ -32,7 +37,7 @@ adapters, tests, templates, and docs; the simulators and models live upstream.
 | `REMOTE_ACCESS.md` | SSH into the Windows box from any network (OpenSSH server, key auth, Tailscale, troubleshooting). |
 | `CONTRIBUTING.md` | Branch/commit conventions, where each kind of work belongs, secrets handling, PR checklist. |
 | `setup.sh` | Reproduces the upstream checkouts at pinned commits + inits the XPolicyLab submodule. `--check` verifies pins without network writes. |
-| `Makefile` | Shortcuts: `test`, `setup`, `check`, `doctor`, `inventory`, `dry-run TASK=<t>`, `finetune-help`, `clean`. |
+| `Makefile` | Shortcuts: `test`, `setup`, `check`, `doctor`, `inventory`, `dry-run TASK=<t>`, `setup-policy POLICY=<p>`, `lowvram`, `smoke-all`, `finetune-help`, `clean`. |
 | `.github/workflows/smoke.yml` | CI: restores checkouts via `setup.sh`, runs the smoke suite on every push/PR. |
 | `.github/pull_request_template.md` | PR front-matter: summary, test plan, checklist. |
 | `.pre-commit-config.yaml` | Whitespace/YAML hygiene, ruff on `tests/`+`templates/`+`adapters/`, blocks >1 MB files (no weights in git). |
@@ -52,6 +57,7 @@ make dry-run POLICY=turbovla TASK=stack_bowls   # resolve an eval command withou
 
 ## Common workflows
 
+- **Set up a GPU box:** follow `GPU_BOX_SETUP.md`; verify with `make smoke-all`.
 - **Evaluate a policy (GPU box):** `bash scripts/run_eval.sh --policy pi05 --task stack_bowls --mode smoke --fail-fast` (swap `pi05`→`turbovla`→`openvla` to compare models) — full command reference in `POLICIES_ROBODOJO.md`; harness details in `OPENVLA_ROBODOJO_SETUP.md` §5.
 - **New benchmark task:** copy `templates/robodojo_task/`, follow its README, validate with `make test` + dry-run, PR the task to `RoboDojo-Benchmark/RoboDojo`.
 - **New policy adapter:** copy `templates/xpolicylab_policy/my_policy/`, fill in the TODOs, PR to `XPolicyLab/XPolicyLab`.

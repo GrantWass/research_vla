@@ -21,9 +21,9 @@ make dry-run POLICY=pi05 TASK=stack_bowls
 
 | `--policy` | What | Adapter | Env | Status |
 |---|---|---|---|---|
-| `openvla` (default) | OpenVLA-OFT 7B, LLM-centric baseline | Upstream `XPolicyLab/policy/OpenVLA_OFT` | `openvla_oft` (conda) | Full eval path (needs trained ckpt) |
-| `turbovla` | TurboVLA 0.2B, direct V+L→A, 32 Hz / <1 GB VRAM (RTX 4090) | This-repo `adapters/turbovla_robodojo/` → installed to `XPolicyLab/policy/TurboVLA` | `turbovla-robodojo` (conda) | Train via `templates/turbovla_finetune/` (same LeRobot schema, no data rewrite), then eval |
-| `pi05` | pi0.5 base VLA (Physical Intelligence, open-world generalization) | Upstream `XPolicyLab/policy/Pi_05` (openpi vendored inside) | `uv` (uv-managed, not conda) | Train via the adapter's `process_data.sh` + `train.sh`, then eval |
+| `openvla` (default) | OpenVLA-OFT 7B, LLM-centric baseline | Upstream `XPolicyLab/policy/OpenVLA_OFT` | `openvla_oft` (conda) | **Sim-verified** with the official ckpt `RoboDojo-sim-arx_x5-joint-1` (4-bit on 16 GB, see `GPU_BOX_SETUP.md`) |
+| `turbovla` | TurboVLA 0.2B, direct V+L→A, 32 Hz / <1 GB VRAM (RTX 4090) | This-repo `adapters/turbovla_robodojo/` → installed to `XPolicyLab/policy/TurboVLA` | `turbovla-robodojo` (conda) | **Sim-verified wiring** with the released RoboTwin ckpt (`--robotwin-smoke`); train via `templates/turbovla_finetune/` for real evals |
+| `pi05` | pi0.5 base VLA (Physical Intelligence, open-world generalization) | Upstream `XPolicyLab/policy/Pi_05` (openpi vendored inside) | `uv` (uv-managed, not conda) | **Sim-verified** with the official ckpt `RoboDojo-sim-arx_x5-joint-0` (stacked the bowls in the smoke run) |
 | `demo` | Zero-action stub | Upstream `XPolicyLab/policy/demo_policy` | `RoboDojo` (conda) | Wiring smoke test only |
 
 Paper: TurboVLA `arXiv:2607.27205`; code
@@ -32,18 +32,22 @@ in `turbovla/`); ckpts `H-EmbodVis/TurboVLA` on Hugging Face.
 
 ## Setup per model
 
-```bash
-bash setup.sh                              # pins openvla/, turbovla/, RoboDojo/
-bash scripts/install_adapter.sh turbovla   # this-repo adapters only (upstream ones ship with XPolicyLab)
+Full bring-up (driver, simulator, verification) is in `GPU_BOX_SETUP.md`. The
+per-policy step is one idempotent command that also carries the fixes the
+upstream installers need:
 
-# GPU box, TurboVLA policy env:
-cd RoboDojo/XPolicyLab/policy/TurboVLA && bash install.sh && conda activate turbovla-robodojo
-# GPU box, OpenVLA policy env:
-cd RoboDojo/XPolicyLab/policy/OpenVLA_OFT && bash install.sh   # see OPENVLA_ROBODOJO_SETUP.md §4
-# GPU box, pi0.5 policy env (uv-managed, NOT conda — no `conda activate`):
-cd RoboDojo/XPolicyLab/policy/Pi_05 && bash install.sh
-source openpi/.venv/bin/activate
+```bash
+bash setup.sh                                          # pins openvla/, turbovla/, RoboDojo/
+bash scripts/setup_policy.sh openvla                   # env openvla_oft + official ckpt
+bash scripts/setup_policy.sh pi05                      # uv env + seed-0 params only (~12 GB)
+bash scripts/setup_policy.sh turbovla --robotwin-smoke # adapter + env + DINOv3/BERT (HF token needed)
+bash scripts/setup_policy.sh demo
+bash scripts/lowvram.sh apply                          # only on 16 GB GPUs
+make smoke-all                                         # every policy through Isaac Sim
 ```
+
+pi0.5 runs in a uv venv (`source RoboDojo/XPolicyLab/policy/Pi_05/openpi/.venv/bin/activate`),
+not conda. Always run evals with the `RoboDojo` conda env active.
 
 ## Eval commands (GPU box)
 

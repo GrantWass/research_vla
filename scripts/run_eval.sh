@@ -25,6 +25,12 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 POLICIES_DIR="${ROOT}/policies"
+# Small-GPU memory settings from `scripts/lowvram.sh apply` (absent by default).
+if [[ -f "${ROOT}/.lowvram.env" ]]; then
+  # shellcheck disable=SC1091
+  source "${ROOT}/.lowvram.env"
+  echo "[run_eval] low-VRAM profile active (.lowvram.env)" >&2
+fi
 # Overridable so tests can stub the harness and inspect the forwarded args.
 ROBODOJO_SH="${ROBODOJO_SH:-${ROOT}/RoboDojo/scripts/robodojo.sh}"
 
