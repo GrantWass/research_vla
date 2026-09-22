@@ -147,6 +147,7 @@ OpenVLA ↔ TurboVLA is one flag:
 ```bash
 bash scripts/run_eval.sh --policy openvla  --task stack_bowls --dry-run
 bash scripts/run_eval.sh --policy turbovla --task stack_bowls --dry-run
+bash scripts/run_eval.sh --policy pi05     --task stack_bowls --dry-run
 ```
 
 Raw `robodojo.sh` equivalents (what the wrapper forwards to):
@@ -214,8 +215,8 @@ Key `deploy.yml` knobs: `base_model_path`, `use_film`, `use_l1_regression`, `use
 
 - `openvla/vla-scripts/{deploy,finetune,train}.py` — inference server, LoRA FT, full FSDP training.
 - `turbovla/turbovla/{models,evaluation}/` — TurboVLA architecture + LIBERO/RoboTwin eval adapters.
-- `policies/{openvla,turbovla,demo}.conf` + `scripts/run_eval.sh` — model registry and the one-flag eval entry (`POLICIES_ROBODOJO.md`).
-- `adapters/turbovla_robodojo/` — this-repo XPolicyLab adapter for TurboVLA (installed via `scripts/install_adapter.sh`).
+- `policies/{openvla,turbovla,pi05,demo}.conf` + `scripts/run_eval.sh` — model registry and the one-flag eval entry (`POLICIES_ROBODOJO.md`).
+- `adapters/turbovla_robodojo/` — this-repo XPolicyLab adapter for TurboVLA (installed via `scripts/install_adapter.sh`). OpenVLA (`OpenVLA_OFT`), pi0.5 (`Pi_05`), and `demo_policy` ship with XPolicyLab — no install step.
 - `openvla/experiments/robot/{libero,bridge}/` — LIBERO + WidowX eval scripts.
 - `RoboDojo/scripts/robodojo.sh` — all eval commands (`doctor eval server client smoke benchmark summarize tasks dimensions`).
 - `RoboDojo/task/RoboDojo/{config,tasks}/` — 54 runnable task YAML + logic; registry `task_registry.py`.

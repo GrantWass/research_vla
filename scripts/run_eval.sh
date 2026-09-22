@@ -5,9 +5,10 @@
 #
 #   bash scripts/run_eval.sh --policy openvla  --task stack_bowls --dry-run
 #   bash scripts/run_eval.sh --policy turbovla --task stack_bowls --dry-run
+#   bash scripts/run_eval.sh --policy pi05     --task stack_bowls --dry-run
 #
 # The --policy name selects policies/<name>.conf, which resolves the
-# XPolicyLab adapter dir, conda env, default ckpt, action type, and env cfg.
+# XPolicyLab adapter dir, policy env, default ckpt, action type, and env cfg.
 # Everything is forwarded to RoboDojo/scripts/robodojo.sh (the only supported
 # eval entry point); this script only fills in model-specific defaults.
 #
@@ -47,6 +48,7 @@ Options:
 Any other flags are forwarded to RoboDojo/scripts/robodojo.sh verbatim.
 Examples:
   bash scripts/run_eval.sh --list
+  bash scripts/run_eval.sh --policy pi05 --task stack_bowls --dry-run
   bash scripts/run_eval.sh --policy turbovla --task stack_bowls --dry-run
   bash scripts/run_eval.sh --policy openvla --task stack_bowls --mode smoke --fail-fast
 EOF
@@ -99,11 +101,15 @@ if [[ ! -f "${CONF}" ]]; then
   list_policies >&2
   exit 2
 fi
-# Registry files are repo-owned KEY=value lines; source them.
+# Registry files are repo-owned KEY=value lines; source them. The conf sets
+# model defaults, so stash CLI-passed overrides first — sourcing would
+# otherwise clobber them (ENV_CFG/ACTION_TYPE exist in both places).
+CLI_ENV_CFG="${ENV_CFG}"
+CLI_ACTION_TYPE="${ACTION_TYPE}"
 # shellcheck disable=SC1090
 source "${CONF}"
 
-for var in POLICY_NAME XPOLICYLAB_POLICY_DIR CONDA_ENV; do
+for var in POLICY_NAME XPOLICYLAB_POLICY_DIR POLICY_ENV; do
   if [[ -z "${!var:-}" ]]; then
     echo "[run_eval] ${CONF} is missing required field ${var}" >&2
     exit 2
@@ -115,8 +121,9 @@ if [[ "${POLICY_NAME}" != "${POLICY}" ]]; then
 fi
 
 CKPT="${CKPT:-${DEFAULT_CKPT:-}}"
-ENV_CFG="${ENV_CFG:-${ENV_CFG:-arx_x5}}"
-ACTION_TYPE="${ACTION_TYPE:-${ACTION_TYPE:-ee}}"
+# Precedence: CLI flag > conf value > builtin default.
+ENV_CFG="${CLI_ENV_CFG:-${ENV_CFG:-arx_x5}}"
+ACTION_TYPE="${CLI_ACTION_TYPE:-${ACTION_TYPE:-ee}}"
 POLICY_DIR="XPolicyLab/policy/$(basename "${XPOLICYLAB_POLICY_DIR}")"
 # Guard against a conf whose policy dir disagrees with the value used.
 if [[ "${XPOLICYLAB_POLICY_DIR}" != "${POLICY_DIR}" ]]; then
@@ -146,7 +153,7 @@ if [[ ! -d "${ROBODOJO_DIR}/${POLICY_DIR}" ]]; then
   exit 1
 fi
 
-common=(--policy-dir "${POLICY_DIR}" --ckpt "${CKPT}" --policy-env "${CONDA_ENV}")
+common=(--policy-dir "${POLICY_DIR}" --ckpt "${CKPT}" --policy-env "${POLICY_ENV}")
 
 case "${MODE}" in
   dry-run)

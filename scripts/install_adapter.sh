@@ -40,9 +40,8 @@ source "${CONF}"
 
 SRC="${ROOT}/adapters/${POLICY}_robodojo"
 if [[ ! -d "${SRC}" ]]; then
-  echo "[install_adapter] No adapter source: adapters/${POLICY}_robodojo/" >&2
-  echo "[install_adapter] (Upstream adapters like OpenVLA_OFT ship with XPolicyLab; nothing to install.)" >&2
-  exit 1
+  echo "[install_adapter] '${POLICY}' uses an upstream adapter (${XPOLICYLAB_POLICY_DIR:-unknown}); nothing to install."
+  exit 0
 fi
 
 DEST_DIR_NAME="$(basename "${XPOLICYLAB_POLICY_DIR}")"

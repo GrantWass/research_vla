@@ -26,7 +26,7 @@ REQUIRED_CONF_KEYS = [
     "POLICY_NAME",
     "DESCRIPTION",
     "XPOLICYLAB_POLICY_DIR",
-    "CONDA_ENV",
+    "POLICY_ENV",
     "ACTION_TYPE",
     "ENV_CFG",
 ]
@@ -89,7 +89,7 @@ class TestPolicyRegistry(unittest.TestCase):
                 )
 
     def test_known_policies_registered(self):
-        for name in ["openvla", "turbovla", "demo"]:
+        for name in ["openvla", "turbovla", "demo", "pi05"]:
             self.assertIn(name, self.confs, f"policies/{name}.conf missing")
 
     def test_names_match_filenames(self):
@@ -103,6 +103,13 @@ class TestPolicyRegistry(unittest.TestCase):
             for key in REQUIRED_CONF_KEYS:
                 self.assertTrue(conf.get(key), f"{name}.conf missing {key}")
 
+    def test_action_type_values_valid(self):
+        # A conf typo here would only surface on the GPU box; fail here.
+        for name, conf in self.confs.items():
+            self.assertIn(
+                conf.get("ACTION_TYPE"), ["joint", "ee"], f"{name}.conf"
+            )
+
     def test_policy_dir_shape(self):
         for name, conf in self.confs.items():
             d = conf["XPOLICYLAB_POLICY_DIR"]
@@ -110,12 +117,19 @@ class TestPolicyRegistry(unittest.TestCase):
             self.assertEqual(len(d.split("/")), 3, f"{name}: {d}")
 
     def test_upstream_adapters_exist(self):
-        # openvla/demo adapters ship with XPolicyLab; they must be present.
-        for name in ["openvla", "demo"]:
+        # openvla/demo/pi05 adapters ship with XPolicyLab; they must be present.
+        for name in ["openvla", "demo", "pi05"]:
             d = os.path.join(ROBODOJO, self.confs[name]["XPOLICYLAB_POLICY_DIR"])
             self.assertTrue(
                 os.path.isfile(os.path.join(d, "eval.sh")), f"missing adapter: {d}"
             )
+
+    def test_uv_policies_use_uv_env_marker(self):
+        # uv-managed adapters (Pi_05) take "uv" where conda policies take an
+        # env name; robodojo.sh accepts "conda env, uv, or env path" there.
+        self.assertEqual(self.confs["pi05"]["POLICY_ENV"], "uv")
+        for name in ["openvla", "turbovla"]:
+            self.assertNotEqual(self.confs[name]["POLICY_ENV"], "uv", name)
 
     def test_turbovla_conf_points_at_owned_adapter(self):
         self.assertTrue(
@@ -143,7 +157,7 @@ class TestRunEvalWrapper(unittest.TestCase):
     def test_list_reports_all_policies(self):
         r = run(["bash", "scripts/run_eval.sh", "--list"])
         self.assertEqual(r.returncode, 0, r.stderr)
-        for name in ["openvla", "turbovla", "demo"]:
+        for name in ["openvla", "turbovla", "demo", "pi05"]:
             self.assertIn(name, r.stdout)
 
     def test_dry_run_resolves_each_policy(self):
@@ -151,6 +165,7 @@ class TestRunEvalWrapper(unittest.TestCase):
             "openvla": "XPolicyLab/policy/OpenVLA_OFT",
             "turbovla": "XPolicyLab/policy/TurboVLA",
             "demo": "XPolicyLab/policy/demo_policy",
+            "pi05": "XPolicyLab/policy/Pi_05",
         }
         for policy, adapter in expectations.items():
             with self.subTest(policy=policy):
@@ -170,10 +185,10 @@ class TestRunEvalWrapper(unittest.TestCase):
                 self.assertIn("stack_bowls", r.stdout + r.stderr)
 
     def test_swap_changes_only_model_flags(self):
-        # The whole point: openvla <-> turbovla differ in policy-dir/env/ckpt,
-        # never in task or harness invocation.
+        # The whole point: openvla <-> turbovla <-> pi05 differ in
+        # policy-dir/env/ckpt, never in task or harness invocation.
         outs = {}
-        for policy in ["openvla", "turbovla"]:
+        for policy in ["openvla", "turbovla", "pi05"]:
             r = run(
                 [
                     "bash",
@@ -189,9 +204,31 @@ class TestRunEvalWrapper(unittest.TestCase):
             outs[policy] = r.stdout + r.stderr
         self.assertIn("openvla-oft", outs["openvla"])
         self.assertIn("turbovla-robodojo", outs["turbovla"])
+        self.assertIn(" 0 uv ", outs["pi05"])  # uv env marker, not a conda env
         for out in outs.values():
             self.assertIn("stack_bowls", out)
             self.assertIn("run_policy_eval.sh", out)
+
+    def test_cli_overrides_beat_conf(self):
+        # Regression: sourcing the conf must not clobber CLI-passed
+        # --env-cfg/--action-type (they used to be silently ignored).
+        base = [
+            "bash",
+            "scripts/run_eval.sh",
+            "--policy",
+            "turbovla",
+            "--task",
+            "stack_bowls",
+            "--dry-run",
+        ]
+        r = run(base)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("arx_x5 joint", r.stdout + r.stderr)  # conf defaults
+        r = run(base + ["--env-cfg", "dual_x5", "--action-type", "ee"])
+        self.assertEqual(r.returncode, 0, r.stderr)
+        out = r.stdout + r.stderr
+        self.assertIn("dual_x5", out)
+        self.assertIn(" ee ", out)
 
     def test_unknown_policy_fails_with_hint(self):
         r = run(
@@ -207,6 +244,15 @@ class TestRunEvalWrapper(unittest.TestCase):
         )
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("Unknown policy", r.stderr)
+
+    def test_install_adapter_noop_for_upstream_policies(self):        # Upstream adapters (openvla/demo/pi05) ship with XPolicyLab:
+        # install must succeed as a no-op, so `make install-adapter`
+        # never blocks the one-flag swap story.
+        for policy in ["openvla", "demo", "pi05"]:
+            with self.subTest(policy=policy):
+                r = run(["bash", "scripts/install_adapter.sh", policy])
+                self.assertEqual(r.returncode, 0, f"{policy}: {r.stderr}")
+                self.assertIn("nothing to install", r.stdout)
 
 
 class TestTurboVLAAdapter(unittest.TestCase):

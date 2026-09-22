@@ -70,6 +70,10 @@ finetune-help:
 	@echo "TurboVLA:       see templates/turbovla_finetune/README.md"
 	@echo "  bash scripts/install_turbovla_training.sh"
 	@echo "  cd turbovla && ROBODOJO_DATA_ROOT=/data/... bash ../templates/turbovla_finetune/train.sh"
+	@echo "pi0.5:          upstream adapter (GPU box, uv-managed, no template)"
+	@echo "  cd RoboDojo/XPolicyLab/policy/Pi_05 && bash install.sh"
+	@echo "  bash process_data.sh RoboDojo cotrain arx_x5 joint"
+	@echo "  bash train.sh RoboDojo cotrain arx_x5 joint 0 0"
 
 clean:
 	find . -name "*.pyc" -not -path "./openvla/*" -not -path "./RoboDojo/*" -not -path "./turbovla/*" | xargs rm -f 2>/dev/null; \
