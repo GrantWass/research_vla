@@ -12,25 +12,29 @@ index c638013..ac34b41 100644
  
  # Action un-normalization key. Leave null to auto-resolve: model.py derives it from
 diff --git a/policy/OpenVLA_OFT/openvla_oft/experiments/robot/openvla_utils.py b/policy/OpenVLA_OFT/openvla_oft/experiments/robot/openvla_utils.py
-index c14c9dc..0fc4a6a 100644
+index c14c9dc..869b24a 100644
 --- a/policy/OpenVLA_OFT/openvla_oft/experiments/robot/openvla_utils.py
 +++ b/policy/OpenVLA_OFT/openvla_oft/experiments/robot/openvla_utils.py
-@@ -279,14 +279,27 @@ def get_vla(cfg: Any) -> torch.nn.Module:
+@@ -279,14 +279,31 @@ def get_vla(cfg: Any) -> torch.nn.Module:
          check_model_logic_mismatch(cfg.pretrained_checkpoint)
  
      # Load the model
 +    quant_kwargs = {"load_in_8bit": cfg.load_in_8bit, "load_in_4bit": cfg.load_in_4bit}
-+    if cfg.load_in_4bit:
-+        # LOCAL PATCH: quantize only the LLM. A 4-bit-packed vision backbone cannot
-+        # take the bf16 FiLM backbone state_dict loaded by _apply_film_to_vla.
++    if cfg.load_in_4bit or cfg.load_in_8bit:
++        # LOCAL PATCH: quantize only the LLM. _apply_film_to_vla rebuilds the vision
++        # backbone and loads a bf16 state_dict into it; doing that on quantized layers
++        # fails outright in 4-bit and silently corrupts the weights in 8-bit (measured:
++        # blacking out every camera moved actions by <0.02 vs 0.33 unquantized-vision).
 +        from transformers import BitsAndBytesConfig
 +
++        skip = ["vision_backbone", "projector"]
 +        quant_kwargs = {
 +            "quantization_config": BitsAndBytesConfig(
-+                load_in_4bit=True,
++                load_in_4bit=cfg.load_in_4bit,
++                load_in_8bit=cfg.load_in_8bit,
 +                bnb_4bit_quant_type="nf4",
 +                bnb_4bit_compute_dtype=torch.bfloat16,
-+                llm_int8_skip_modules=["vision_backbone", "projector"],
++                llm_int8_skip_modules=skip,
 +            )
 +        }
      vla = AutoModelForVision2Seq.from_pretrained(
@@ -45,7 +49,7 @@ index c14c9dc..0fc4a6a 100644
      )
  
      # If using FiLM, wrap the vision backbone to allow for infusion of language inputs
-@@ -301,6 +314,9 @@ def get_vla(cfg: Any) -> torch.nn.Module:
+@@ -301,6 +318,9 @@ def get_vla(cfg: Any) -> torch.nn.Module:
      # Move model to device if not using quantization
      if not cfg.load_in_8bit and not cfg.load_in_4bit:
          vla = vla.to(DEVICE)

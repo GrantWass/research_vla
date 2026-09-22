@@ -13,11 +13,25 @@ schema TurboVLA's LeRobot training path expects:
 | TurboVLA expects | RoboDojo `lerobot_v3.0_ee` provides |
 |---|---|
 | `observation.images.{cam_high,cam_left_wrist,cam_right_wrist}` | same (640×480, resized to 224 by the loader) |
-| `observation.state` 14-D `[left_arm(6), left_ee(1), right_arm(6), right_ee(1)]` | same (`dual_x5`) |
+| `observation.state` 14-D `[left_arm(6), left_ee(1), right_arm(6), right_ee(1)]` | same (`dual_x5`) — in **`lerobot_v3.0`**, the joint variant |
 | `action` 14-D absolute joint targets | same |
 | `task_index` → language string | same (standard LeRobot task metadata) |
 
-The only glue is a **registry overlay**: `data_registry/data_config.py`
+**Use `lerobot_v3.0`, not `lerobot_v3.0_ee`.** Verified 2026-09-22: the `_ee`
+variant stores 16-D end-effector poses (`[xyz(3), quat(4), gripper(1)]` per arm),
+not 14-D joints, so it does not match this recipe or the `arx_x5` joint eval.
+
+RoboDojo ships **one combined LeRobot dataset** (3500 episodes, all tasks) while
+`train.sh` / `data_config.py` expect a directory of per-task datasets. Build that
+view (and skip the 120 GB download) with `make_task_dataset.py`:
+
+```bash
+python templates/turbovla_finetune/make_task_dataset.py \
+  --source RoboDojo/.cache/robodojo_assets_repo/data/RoboDojo_lerobot_v30_video \
+  --out data/robodojo_tasks_joint --task stack_bowls   # 100 episodes, ~3 GB
+```
+
+The only other glue is a **registry overlay**: `data_registry/data_config.py`
 declares the `robodojo_arx_x5` mix + robot type, and the StarVLA registry
 auto-discovers it from `turbovla/experiments/robodojo/`. Use the `*_ee`
 format — plain `lerobot_v3.0` is joint-only (no gripper values).
@@ -31,7 +45,7 @@ bash scripts/install_turbovla_training.sh
 bash scripts/install_adapter.sh turbovla
 
 # 1. Data (120 GB, ee variant!) + training env (upstream recipe)
-cd RoboDojo && bash scripts/RoboDojo/download_data.sh huggingface lerobot_v3.0_ee
+cd RoboDojo && bash scripts/RoboDojo/download_data.sh huggingface lerobot_v3.0   # joint variant; or pull one task, see above
 cd ../turbovla && pip install -e ".[robotwin]" && pip install flash-attn==2.7.4.post1 --no-build-isolation
 # model assets: DINOv3 (ViT-L recommended), bert-base-uncased, groundingdino_swint_ogc.pth
 

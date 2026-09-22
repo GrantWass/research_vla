@@ -25,6 +25,27 @@ These single episodes prove that each model is configured correctly for Isaac Si
 They are **not** benchmark numbers: the low-VRAM profile degrades rendering, OpenVLA
 runs 4-bit, and the TurboVLA ckpt was trained on a different robot.
 
+## Three-model comparison (same robot, same task)
+
+`stack_bowls`, `env_cfg=arx_x5`, joint actions, seed 0, 5 episodes each,
+sequential on the reference box with the low-VRAM profile:
+
+| Policy | Checkpoint | Success | Score | Wall time |
+|---|---|---:|---:|---:|
+| pi0.5 | official `RoboDojo-sim-arx_x5-joint-0`, bf16 | **3/5** | 66.0 | 4.5 min |
+| OpenVLA-OFT | official `RoboDojo-sim-arx_x5-joint-1`, 4-bit | 0/5 | 0.0 | 10 min |
+| TurboVLA | released RoboTwin ckpt (different robot) | 0/5 | 0.0 | 8.2 min |
+
+OpenVLA-OFT scoring zero matches the RoboDojo paper, which reports **0.21 score
+/ 0.02% success** for it on the sim benchmark versus **11.41 / 6.91%** for pi0.5
+(best policies cluster under 15%; human teleop is 76%). It is not a setup fault.
+`scripts/diag_openvla_obs.py` confirms the observation path: in 4-bit the
+predicted actions respond to the cameras (max change 0.33 when they are blacked
+out) and beat a hold-still baseline (MAE 0.079 vs 0.128).
+
+TurboVLA needs a RoboDojo-trained ckpt before it belongs in this table
+(`templates/turbovla_finetune/`).
+
 ## 1. OS and NVIDIA driver
 
 Use **driver 580**. Isaac Sim 5.1 segfaults in its RTX renderer
@@ -144,8 +165,11 @@ bash scripts/lowvram.sh apply     # status | revert
   (no DLAA, reflections, GI, translucency or denoiser; low texture budget) and
   sizes the PhysX GPU buffers for the 1-env eval. Isaac Sim drops from 7.7 to 5.7 GB.
 - **`patches/xpolicylab_openvla_oft_lowvram.patch`** loads OpenVLA 4-bit
-  (LLM only; vision backbone stays bf16), plus two upstream loader bugs that
-  make quantized FiLM checkpoints fail. Measured policy memory: bf16 15.2 GB
+  (LLM only; vision backbone and projector stay bf16), plus upstream loader bugs
+  that make quantized FiLM checkpoints fail. Quantizing the vision backbone is
+  fatal in 4-bit and *silent* in 8-bit: the bf16 FiLM weights land in quantized
+  layers and the policy goes effectively blind (verify with
+  `scripts/diag_openvla_obs.py`). Measured policy memory: bf16 15.2 GB
   (OOM at load), 8-bit 11.7 GB (sim OOM), 4-bit 9.2 GB (fits).
 - **`.lowvram.env`** (sourced by `scripts/run_eval.sh`) sets
   `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` and
@@ -175,6 +199,23 @@ make smoke-all              # demo, openvla, pi05, turbovla through Isaac Sim
   and the `RoboDojo` env active.
 - GPU memory: `nvidia-smi --query-gpu=memory.used --format=csv -lms 1000` in a
   second shell.
+
+## 7. Offline checks without the simulator
+
+Per-task demo data (for diagnostics and TurboVLA training) can be carved out of
+RoboDojo's combined LeRobot download instead of pulling all 120 GB:
+
+```bash
+# meta + the data/video files one task needs (stack_bowls: 100 episodes, ~3 GB)
+python templates/turbovla_finetune/make_task_dataset.py \
+  --source RoboDojo/.cache/robodojo_assets_repo/data/RoboDojo_lerobot_v30_video \
+  --out data/robodojo_tasks_joint --task stack_bowls
+python scripts/diag_openvla_obs.py 3 4bit     # predicted vs ground-truth actions
+```
+
+Use `lerobot_v3.0` (14-D joint state/action, what `arx_x5` joint eval and the
+TurboVLA recipe expect). `lerobot_v3.0_ee` is 16-D end-effector poses
+(position + quaternion + gripper per arm), a different convention.
 
 ## Troubleshooting
 
