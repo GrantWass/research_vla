@@ -40,4 +40,7 @@ precision: bf16
 # Dual-arm envs (e.g. arx_x5/dual_x5) with a single-arm ckpt (7-D rows):
 #   error      -> fail fast with a fine-tune pointer (default; metrics stay honest)
 #   first_arm  -> drive arm 0 (+ its gripper), hold the other arm at zero (smoke only)
+# Order of the ckpt's 14-D state/action vectors: packed = RoboDojo
+# [arm_0, ee_0, arm_1, ee_1] (RoboDojo-trained); arms_first = RoboTwin.
+action_layout: packed
 dual_arm_mode: error

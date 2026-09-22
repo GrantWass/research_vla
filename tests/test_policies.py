@@ -33,6 +33,7 @@ REQUIRED_CONF_KEYS = [
 ]
 
 ADAPTER_FILES = [
+    "deploy.py",
     "deploy.yml",
     "model.py",
     "eval.sh",
@@ -309,6 +310,14 @@ class TestTurboVLAAdapter(unittest.TestCase):
                     f"{fname}: installed copy differs from adapters/ source",
                 )
 
+    def test_deploy_py_contract(self):
+        # Regression: the adapter shipped without deploy.py, so the env
+        # client died with "No module named ...TurboVLA.deploy".
+        with open(os.path.join(ADAPTER_SRC, "deploy.py")) as f:
+            src = f.read()
+        for fn in ("def eval_one_episode(", "def eval_one_episode_batch("):
+            self.assertIn(fn, src)
+
     def test_launchers_parse(self):
         for fname in [
             "eval.sh",
@@ -335,6 +344,72 @@ class TestTurboVLAAdapter(unittest.TestCase):
             self.assertIn(f"def {method}", src)
         self.assertIn("ModelTemplate", src)
         self.assertIn("unpack_robot_state", src)
+
+
+def _load_turbovla_adapter_module():
+    """Import adapters/turbovla_robodojo/model.py (needs numpy + XPolicyLab)."""
+    import importlib.util
+    import sys
+
+    xpl_parent = ROBODOJO
+    if xpl_parent not in sys.path:
+        sys.path.insert(0, xpl_parent)
+    spec = importlib.util.spec_from_file_location(
+        "turbovla_adapter_model", os.path.join(ADAPTER_SRC, "model.py")
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+class TestTurboVLAActionLayout(unittest.TestCase):
+    """Dual-arm de-normalization (was hardcoded to the 7-D LIBERO layout)."""
+
+    @classmethod
+    def setUpClass(cls):
+        try:
+            import numpy  # noqa: F401
+
+            cls.mod = _load_turbovla_adapter_module()
+        except ImportError as exc:
+            raise unittest.SkipTest(f"numpy/XPolicyLab unavailable: {exc}")
+
+    def _model(self, layout, mask):
+        import numpy as np
+
+        m = object.__new__(self.mod.Model)
+        m.robot_action_dim_info = {"arm_dim": [6, 6], "ee_dim": [1, 1]}
+        m.action_layout = layout
+        m.action_dim = 14
+        m.action_min = np.full(14, -2.0, dtype=np.float32)
+        m.action_max = np.full(14, 2.0, dtype=np.float32)
+        m.action_mask = mask
+        return m
+
+    def test_packed_layout_denorm(self):
+        import numpy as np
+
+        m = self._model("packed", None)
+        row = np.zeros(14, dtype=np.float32)
+        row[6], row[13] = 0.5, -0.5  # grippers (sign rule)
+        out = m._denormalize_row(row, 2)
+        self.assertTrue(np.allclose(out[[*range(6), *range(7, 13)]], 0.0))
+        self.assertEqual((out[6], out[13]), (1.0, -1.0))
+
+    def test_arms_first_layout_reorders_to_packed(self):
+        import numpy as np
+
+        mask = np.array([True] * 12 + [False] * 2)
+        m = self._model("arms_first", mask)
+        row = np.zeros(14, dtype=np.float32)
+        row[0], row[6] = 1.0, -1.0  # arm0 j0 -> max, arm1 j0 -> min
+        row[12], row[13] = 0.3, 0.7  # raw (unnormalized) grippers
+        out = m._denormalize_row(row, 2)
+        # packed = [arm0(6), g0, arm1(6), g1]
+        self.assertAlmostEqual(float(out[0]), 2.0)
+        self.assertAlmostEqual(float(out[7]), -2.0)
+        self.assertAlmostEqual(float(out[6]), 0.3, places=5)
+        self.assertAlmostEqual(float(out[13]), 0.7, places=5)
 
 
 class TestTurboVLACheckout(unittest.TestCase):

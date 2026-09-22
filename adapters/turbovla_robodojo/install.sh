@@ -19,7 +19,8 @@ set -euo pipefail
 
 POLICY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 XPOLICYLAB_ROOT="$(cd "${POLICY_DIR}/../.." && pwd)"
-WORKSPACE_ROOT="$(cd "${POLICY_DIR}/../../.." && pwd)"
+# Installed at RoboDojo/XPolicyLab/policy/TurboVLA -> workspace root is 4 levels up.
+WORKSPACE_ROOT="$(cd "${POLICY_DIR}/../../../.." && pwd)"
 
 CONDA_ENV="${TURBOVLA_CONDA_ENV:-turbovla-robodojo}"
 PYTHON_VERSION="${TURBOVLA_PYTHON_VERSION:-3.10}"

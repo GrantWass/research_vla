@@ -86,6 +86,12 @@ _IMAGENET_STD = np.array([0.229, 0.224, 0.225], dtype=np.float32)
 
 _PRIMARY_CANDIDATES = ("cam_high", "cam_head", "head_camera", "top_camera")
 _WRIST_CANDIDATES = ("cam_left_wrist", "left_camera", "left_wrist", "wrist_left")
+_RIGHT_WRIST_CANDIDATES = (
+    "cam_right_wrist",
+    "right_camera",
+    "right_wrist",
+    "wrist_right",
+)
 
 
 def _extract_image(observation: dict, candidates: tuple[str, ...]) -> np.ndarray:
@@ -156,13 +162,18 @@ def _resolve_prompt(observation: dict, default_prompt: str) -> str:
 
 
 def _load_stats(stats_path: str | None, stats_key: str | None):
-    """Return (proprio_mean, proprio_std, action_min, action_max)."""
+    """Return (proprio_mean, proprio_std, action_min, action_max, action_mask).
+
+    action_mask marks dims that were min/max-normalized at training time
+    (None = infer: arms normalized, grippers use the sign rule).
+    """
     if not stats_path:
         return (
             _LIBERO_PROPRIO_MEAN,
             _LIBERO_PROPRIO_STD,
             _LIBERO_ACTION_MIN,
             _LIBERO_ACTION_MAX,
+            None,
         )
     payload = json.loads(Path(stats_path).read_text(encoding="utf-8"))
     if stats_key:
@@ -182,7 +193,63 @@ def _load_stats(stats_path: str | None, stats_key: str | None):
         np.asarray(stats[state_section]["std"], dtype=np.float32),
         np.asarray(stats["action"]["min"], dtype=np.float32),
         np.asarray(stats["action"]["max"], dtype=np.float32),
+        np.asarray(stats["action"]["mask"], dtype=bool)
+        if "mask" in stats["action"]
+        else None,
     )
+
+
+# Released ckpts predate the upstream module rename; map old -> current names.
+_LEGACY_KEY_PREFIXES = (
+    ("dinov3.model.", "vision_encoder.backbone."),
+    ("feature_enhancer.", "vision_language_interaction."),
+    (
+        "action_model.action_policy.action_head.",
+        "action_head.decoder.action_projection.",
+    ),
+    ("action_model.action_policy.", "action_head.decoder."),
+    ("action_model.state_proj.out_norm.", "action_head.state_projection.output_norm."),
+    ("action_model.state_proj.", "action_head.state_projection."),
+    ("vision_proj.norm_in.", "vision_projection.input_norm."),
+    ("vision_proj.norm_out.", "vision_projection.output_norm."),
+    ("vision_proj.", "vision_projection."),
+    ("text_encoder.text_proj.", "text_encoder.text_projection."),
+)
+_LEGACY_KEY_NAMES = {
+    "view_embed": "view_embedding",
+    "vision_pos_embed": "patch_position_embedding",
+    "vision_pos_scale": "patch_position_scale",
+    "action_model.state_proj.pos": "action_head.state_projection.position",
+}
+
+
+def _read_state_dict(torch, ckpt_path: Path) -> dict:
+    if str(ckpt_path).endswith(".safetensors"):
+        from safetensors.torch import load_file
+
+        blob = load_file(str(ckpt_path), device="cpu")
+    else:
+        blob = torch.load(str(ckpt_path), map_location="cpu", weights_only=True)
+    if isinstance(blob, dict):
+        for key in ("ema_model_state_dict", "model_state_dict", "state_dict"):
+            if isinstance(blob.get(key), dict):
+                blob = blob[key]
+                break
+    if not isinstance(blob, dict):
+        raise TypeError(f"Unsupported checkpoint format: {type(blob)}")
+    return {k.removeprefix("module."): v for k, v in blob.items()}
+
+
+def _remap_legacy_keys(state: dict) -> dict:
+    out = {}
+    for key, value in state.items():
+        key = _LEGACY_KEY_NAMES.get(key, key)
+        for old, new in _LEGACY_KEY_PREFIXES:
+            if key.startswith(old):
+                key = new + key[len(old) :]
+                break
+        out[key] = value
+    return out
 
 
 def _preprocessor_stats(dinov3_path: str | None):
@@ -254,9 +321,20 @@ class Model(ModelTemplate):
         stats_path = self.model_cfg.get("stats_path") or os.environ.get(
             "TURBOVLA_STATS"
         )
-        self.proprio_mean, self.proprio_std, self.action_min, self.action_max = (
-            _load_stats(stats_path, self.model_cfg.get("stats_key"))
-        )
+        (
+            self.proprio_mean,
+            self.proprio_std,
+            self.action_min,
+            self.action_max,
+            self.action_mask,
+        ) = _load_stats(stats_path, self.model_cfg.get("stats_key"))
+        # Order of the ckpt's state/action vectors. `packed` = RoboDojo
+        # [arm_0, ee_0, arm_1, ee_1]; `arms_first` = RoboTwin [arm_0, arm_1, ee_0, ee_1].
+        self.action_layout = str(self.model_cfg.get("action_layout", "packed"))
+        if self.action_layout not in ("packed", "arms_first"):
+            raise ValueError(
+                f"action_layout must be 'packed' or 'arms_first', got {self.action_layout!r}"
+            )
         if self.proprio_mean.shape[0] != self.state_dim:
             raise ValueError(
                 f"Proprio stats dim {self.proprio_mean.shape[0]} != "
@@ -366,6 +444,11 @@ class Model(ModelTemplate):
 
         ckpt_path = self._resolve_checkpoint()
         print(f"[TurboVLA] loading checkpoint: {ckpt_path}")
+        cleaned = _remap_legacy_keys(_read_state_dict(torch, ckpt_path))
+        # Released RoboTwin ckpts use learned per-patch position embeddings.
+        position_embedding = (
+            "learned_patch" if "patch_position_embedding" in cleaned else "view"
+        )
         config = TurboVLAConfig(
             text=TextEncoderConfig(
                 model_name_or_path=self.bert_path, frozen=True, local_files_only=True
@@ -374,6 +457,7 @@ class Model(ModelTemplate):
                 model_name_or_path=self.dinov3_path,
                 image_size=self.image_size,
                 num_views=self.num_views,
+                position_embedding=position_embedding,
                 frozen=True,
                 local_files_only=True,
             ),
@@ -385,15 +469,6 @@ class Model(ModelTemplate):
             ),
         )
         policy = TurboVLA(config)
-        blob = torch.load(str(ckpt_path), map_location="cpu", weights_only=True)
-        if isinstance(blob, dict):
-            for key in ("ema_model_state_dict", "model_state_dict", "state_dict"):
-                if isinstance(blob.get(key), dict):
-                    blob = blob[key]
-                    break
-        if not isinstance(blob, dict):
-            raise TypeError(f"Unsupported checkpoint format: {type(blob)}")
-        cleaned = {k.removeprefix("module."): v for k, v in blob.items()}
         missing, unexpected = policy.load_state_dict(cleaned, strict=False)
         if unexpected:
             raise RuntimeError(
@@ -414,48 +489,51 @@ class Model(ModelTemplate):
     # ---- observation handling ----
 
     def _encode_obs(self, observation: dict) -> dict:
+        # View order matches training: head, left wrist, right wrist
+        # (RoboDojo cam_head/cam_left_wrist/cam_right_wrist; RoboTwin head/left/right).
         if "images" in observation and "state" in observation:
-            primary = _ensure_hwc_uint8(observation["images"]["cam_high"])
-            wrist_key = next(
-                (
-                    k
-                    for k in ("cam_left_wrist", "cam_right_wrist", "cam_wrist")
-                    if k in observation["images"]
-                ),
-                None,
+            images = observation["images"]
+            candidates = (
+                ("cam_high",),
+                ("cam_left_wrist", "cam_wrist"),
+                ("cam_right_wrist",),
             )
-            wrist = (
-                _ensure_hwc_uint8(observation["images"][wrist_key])
-                if wrist_key
-                else None
-            )
+            views = [
+                next((images[k] for k in keys if k in images), None)
+                for keys in candidates
+            ]
             state = np.asarray(observation["state"], dtype=np.float32)
         else:
-            primary = _ensure_hwc_uint8(
-                _extract_image(observation, _PRIMARY_CANDIDATES)
-            )
-            try:
-                wrist = _ensure_hwc_uint8(
-                    _extract_image(observation, _WRIST_CANDIDATES)
-                )
-            except KeyError:
-                wrist = None
+            views = []
+            for keys in (
+                _PRIMARY_CANDIDATES,
+                _WRIST_CANDIDATES,
+                _RIGHT_WRIST_CANDIDATES,
+            ):
+                try:
+                    views.append(_extract_image(observation, keys))
+                except KeyError:
+                    views.append(None)
             state = pack_robot_state(
                 observation,
                 self.action_type,
                 self.robot_action_dim_info,
                 source_type="obs",
             ).astype(np.float32)
-        if wrist is None:
+        if views[0] is None:
+            raise KeyError("No head/primary camera image in observation.")
+        views = [_ensure_hwc_uint8(v) if v is not None else None for v in views]
+        views = views[: self.num_views]
+        if any(v is None for v in views):
             if not self._warned_single_view:
                 print(
-                    "[TurboVLA] WARNING: no wrist camera; duplicating primary "
-                    "view. Prefer a 2-camera env_cfg."
+                    f"[TurboVLA] WARNING: env provides fewer than {self.num_views} "
+                    "cameras; duplicating the head view for the missing ones."
                 )
                 self._warned_single_view = True
-            wrist = primary
+            views = [v if v is not None else views[0] for v in views]
         prompt = _resolve_prompt(observation, self.default_prompt)
-        return {"primary": primary, "wrist": wrist, "state": state, "prompt": prompt}
+        return {"views": views, "state": state, "prompt": prompt}
 
     def update_obs(self, obs):
         self._obs = self._encode_obs(obs)
@@ -485,36 +563,69 @@ class Model(ModelTemplate):
     def _gripper_from_norm(value: float) -> float:
         return 1.0 if float(value) >= 0.0 else -1.0
 
-    def _denormalize_row(self, row: np.ndarray) -> np.ndarray:
+    def _layout(self, num_arms: int) -> tuple[list[int], list[int], list[int]]:
+        """(arm dims, gripper dims, packed index of each dim) in ckpt order."""
+        arm_dims = self.robot_action_dim_info["arm_dim"][:num_arms]
+        ee_dims = self.robot_action_dim_info["ee_dim"][:num_arms]
+        packed, arms, ees, off = [], [], [], 0
+        for a, e in zip(arm_dims, ee_dims):
+            packed.append(
+                (list(range(off, off + a)), list(range(off + a, off + a + e)))
+            )
+            off += a + e
+        if self.action_layout == "arms_first":
+            order = [i for a, _ in packed for i in a] + [
+                i for _, e in packed for i in e
+            ]
+            n_arm = sum(arm_dims)
+            arms, ees = list(range(n_arm)), list(range(n_arm, len(order)))
+        else:
+            order = [i for a, e in packed for i in a + e]
+            for a, e in packed:
+                arms += a
+                ees += e
+        return arms, ees, order
+
+    def _denormalize_row(self, row: np.ndarray, num_arms: int) -> np.ndarray:
+        """Model row (ckpt order, tanh-normalized) -> env values in packed order."""
         row = np.asarray(row, dtype=np.float32).reshape(-1)
         if row.shape[0] != self.action_dim:
             raise ValueError(
                 f"Model action dim {row.shape[0]}, expected {self.action_dim}."
             )
-        arm = (
-            0.5 * (row[:6] + 1.0) * (self.action_max[:6] - self.action_min[:6])
-            + self.action_min[:6]
-        )
-        gripper = np.asarray([self._gripper_from_norm(row[6])], dtype=np.float32)
-        return np.concatenate([arm, gripper], axis=0).astype(np.float32)
+        arms, ees, order = self._layout(num_arms)
+        out = np.empty_like(row)
+        lo, hi = self.action_min, self.action_max
+        out[arms] = 0.5 * (row[arms] + 1.0) * (hi[arms] - lo[arms]) + lo[arms]
+        for i in ees:
+            if self.action_mask is not None and not self.action_mask[i]:
+                out[i] = np.clip(row[i], lo[i], hi[i])  # trained on raw gripper values
+            else:
+                out[i] = self._gripper_from_norm(row[i])
+        packed = np.empty_like(out)
+        packed[order] = out
+        return packed
 
     def _rows_to_actions(self, rows: np.ndarray) -> list[dict]:
         """Map [H, A] model rows to per-step env action dicts."""
         out: list[dict] = []
+        one_arm = (
+            self.robot_action_dim_info["arm_dim"][0]
+            + self.robot_action_dim_info["ee_dim"][0]
+        )
         for row in rows:
-            env_row = self._denormalize_row(row)
-            if env_row.shape[0] == self.packed_dim:
-                packed = env_row
+            if self.action_dim == self.packed_dim:
+                packed = self._denormalize_row(row, self.num_arms)
             elif (
                 self.num_arms == 2
-                and env_row.shape[0]
-                == self.robot_action_dim_info["arm_dim"][0]
-                + self.robot_action_dim_info["ee_dim"][0]
+                and self.action_dim == one_arm
                 and self.dual_arm_mode == "first_arm"
             ):
+                env_row = self._denormalize_row(row, 1)
                 pad = np.zeros(self.packed_dim - env_row.shape[0], dtype=np.float32)
                 packed = np.concatenate([env_row, pad], axis=0)
             else:
+                env_row = np.asarray(row).reshape(-1)
                 raise ValueError(
                     f"Model action dim {env_row.shape[0]} != env packed dim "
                     f"{self.packed_dim} (dual_arm_mode={self.dual_arm_mode!r}). "
@@ -536,13 +647,7 @@ class Model(ModelTemplate):
         if self._chunk:
             return self._chunk
         views = (
-            torch.stack(
-                [
-                    self._preprocess_view(obs["primary"]),
-                    self._preprocess_view(obs["wrist"]),
-                ],
-                dim=0,
-            )
+            torch.stack([self._preprocess_view(v) for v in obs["views"]], dim=0)
             .unsqueeze(0)
             .to(self.device)
         )
@@ -553,6 +658,8 @@ class Model(ModelTemplate):
                 f"{self.state_dim}. This ckpt was trained with a different "
                 "proprio convention — fine-tune on RoboDojo data (see README)."
             )
+        if self.action_layout == "arms_first":
+            state = state[self._layout(self.num_arms)[2]]  # packed -> ckpt order
         norm = (state - self.proprio_mean) / (self.proprio_std + 1e-6)
         state_t = torch.from_numpy(norm).float().unsqueeze(0).to(self.device)
         autocast = (

@@ -35,4 +35,7 @@ action_dim: 14
 device: cuda
 precision: bf16
 
+# Order of the ckpt's 14-D state/action vectors: packed = RoboDojo
+# [arm_0, ee_0, arm_1, ee_1] (RoboDojo-trained); arms_first = RoboTwin.
+action_layout: packed
 dual_arm_mode: error
