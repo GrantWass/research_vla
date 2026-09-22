@@ -244,6 +244,8 @@ Key `deploy.yml` knobs: `base_model_path`, `use_film`, `use_l1_regression`, `use
 - `doctor` FAIL `Assets/*`: run `bash scripts/init_assets.sh` (+ `git lfs install` first), then `python utils/update_embodiment_config_path.py`.
 - `doctor` FAIL `env_cfg references` / `No module named 'yaml'`: system Python lacks deps — use the `RoboDojo` conda env on the GPU box.
 - Isaac Sim crash / driver errors: use tested driver **580.65.06** (not 595.x), CUDA 12.8, `vulkaninfo` must work.
+  Confirmed on the RTX 4070 Ti SUPER box (Ubuntu 24.04, kernel 7.0 HWE): 595.91 segfaults in `librtx.scenedb.plugin.so` right after "app ready"; hiding the AMD iGPU via `VK_ICD_FILENAMES` does not help. `sudo apt install nvidia-driver-580 linux-modules-nvidia-580-generic-hwe-24.04` (Canonical-signed, no MOK re-enroll) + reboot fixes it; 580.178.04 passes `make smoke POLICY=demo TASK=stack_bowls`.
+- `install.sh -i` step `submodules` runs `git submodule update --remote`, which moves XPolicyLab off the `setup.sh` pin. On a fresh box: `git submodule update --init third_party/IsaacLab third_party/curobo`, create the env by hand (steps `conda` + `base_deps`), then `bash scripts/install.sh --from isaacsim`.
 - `ValueError: ... X5A.urdf is not a file` in Docker: you skipped the dual Assets mount — follow §8.6 of the install doc (mount `$PWD/Assets` at both container and absolute-host paths) plus cache mounts.
 - OpenVLA near-100% `action_accuracy` when FT on BridgeData V2 with `--image_aug False`: expected (pretrained on a superset incl. Bridge V2) — not a bug.
 - OpenVLA demo fails on a new robot out-of-the-box: expected — it needs ~100-demo FT on the target domain at 5–10 Hz with continuous motion (see `openvla/README.md` "VLA Performance Troubleshooting").
