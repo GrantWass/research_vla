@@ -2,10 +2,12 @@
 # Modeled on the paper's RoboTwin recipe (experiments/robotwin/configs/clean50.yaml):
 # same 14-D state/action, 3 views, L1 action loss, EMA, DeepSpeed ZeRO-2.
 # Env-var settings (see templates/turbovla_finetune/train.sh):
-#   ROBODOJO_DATA_ROOT  dir of per-task LeRobot datasets (lerobot_v3.0_ee)
+#   ROBODOJO_DATA_ROOT  dir of per-task LeRobot datasets (lerobot_v3.0, joint;
+#                       build with make_task_dataset.py)
 #   BERT_MODEL_PATH     local bert-base-uncased dir
 #   DINOV3_MODEL_PATH   local DINOv3 dir (ViT-L recommended for 3 views)
-#   TURBOVLA_INIT_CKPT  groundingdino_swint_ogc.pth (interaction init)
+#   TURBOVLA_INIT_CKPT  groundingdino_swint_ogc.pth, or a released TurboVLA
+#                       ckpt with TURBOVLA_INIT_FULL=1 (recommended)
 run_id: turbovla_robodojo_arx_x5
 run_root_dir: results/Checkpoints
 seed: 42
@@ -52,6 +54,11 @@ framework:
     load_bert: true
     load_text_projection: true
     load_interaction: true
+    # TURBOVLA_INIT_FULL=1 + a released TurboVLA ckpt (LIBERO/RoboTwin) starts
+    # from a trained VLA instead of GroundingDINO: far fewer steps to converge.
+    # Needs patches/turbovla_full_ckpt_init.patch and matching dims
+    # (num_views / state_dim / action_dim / horizon).
+    load_full_checkpoint: ${oc.decode:${oc.env:TURBOVLA_INIT_FULL,false}}
   action:
     action_dim: 14
     state_dim: 14

@@ -1,0 +1,84 @@
+diff --git a/third_party/starvla_runtime/starVLA/model/framework/VLM4A/TurboVLA.py b/third_party/starvla_runtime/starVLA/model/framework/VLM4A/TurboVLA.py
+index 7f672a3..4eee105 100644
+--- a/third_party/starvla_runtime/starVLA/model/framework/VLM4A/TurboVLA.py
++++ b/third_party/starvla_runtime/starVLA/model/framework/VLM4A/TurboVLA.py
+@@ -72,6 +72,10 @@ class TurboVLADefaultConfig:
+             "load_bert": True,
+             "load_text_projection": True,
+             "load_interaction": True,
++            # LOCAL PATCH: init from a full TurboVLA checkpoint (released LIBERO /
++            # RoboTwin weights) instead of GroundingDINO. Loads every tensor whose
++            # name and shape match, so fine-tuning starts from a trained VLA.
++            "load_full_checkpoint": False,
+         }
+     )
+     action: dict = field(
+@@ -174,12 +178,67 @@ class TurboVLAFramework(baseframework):
+                     return checkpoint[key]
+         return checkpoint
+ 
++    # Released TurboVLA ckpts predate the module rename; map old -> current names.
++    _LEGACY_PREFIXES = (
++        ("dinov3.model.", "vision_encoder.backbone."),
++        ("feature_enhancer.", "vision_language_interaction."),
++        ("action_model.action_policy.action_head.", "action_head.decoder.action_projection."),
++        ("action_model.action_policy.", "action_head.decoder."),
++        ("action_model.state_proj.out_norm.", "action_head.state_projection.output_norm."),
++        ("action_model.state_proj.", "action_head.state_projection."),
++        ("vision_proj.norm_in.", "vision_projection.input_norm."),
++        ("vision_proj.norm_out.", "vision_projection.output_norm."),
++        ("vision_proj.", "vision_projection."),
++        ("text_encoder.text_proj.", "text_encoder.text_projection."),
++    )
++    _LEGACY_NAMES = {
++        "view_embed": "view_embedding",
++        "vision_pos_embed": "patch_position_embedding",
++        "vision_pos_scale": "patch_position_scale",
++        "action_model.state_proj.pos": "action_head.state_projection.position",
++    }
++
++    def _load_full_checkpoint(self, source: dict, path: str) -> None:
++        target = self.model.state_dict()
++        remapped = {}
++        for key, value in source.items():
++            key = self._LEGACY_NAMES.get(key, key)
++            for old, new in self._LEGACY_PREFIXES:
++                if key.startswith(old):
++                    key = new + key[len(old) :]
++                    break
++            remapped[key] = value
++        loaded = {k: v for k, v in remapped.items()
++                  if k in target and tuple(target[k].shape) == tuple(v.shape)}
++        skipped = sorted(set(remapped) - set(loaded))
++        if len(loaded) < 0.8 * len(target):
++            raise RuntimeError(
++                f"only {len(loaded)}/{len(target)} tensors matched {path}; "
++                f"check num_views / state_dim / action_dim / horizon against the ckpt "
++                f"(first mismatches: {skipped[:5]})"
++            )
++        target.update(loaded)
++        self.model.load_state_dict(target, strict=True)
++        print(
++            f"[TurboVLA] full-checkpoint init: loaded {len(loaded)}/{len(target)} tensors "
++            f"from {path}" + (f" ({len(skipped)} skipped, e.g. {skipped[:3]})" if skipped else ""),
++            flush=True,
++        )
++
+     def _load_initialization(self, init_cfg) -> None:
+         path = str(init_cfg.pretrained_ckpt)
+         if not path:
+             raise ValueError("framework.initialization.pretrained_ckpt is required")
+-        source = self._checkpoint_state(torch.load(path, map_location="cpu"))
++        if path.endswith(".safetensors"):
++            from safetensors.torch import load_file
++
++            source = load_file(path, device="cpu")
++        else:
++            source = self._checkpoint_state(torch.load(path, map_location="cpu"))
+         source = {(key[7:] if key.startswith("module.") else key): value for key, value in source.items()}
++        if init_cfg.get("load_full_checkpoint", False):
++            self._load_full_checkpoint(source, path)
++            return
+         mappings = []
+         if init_cfg.load_bert:
+             mappings.append(("bert.", "text_encoder.bert."))

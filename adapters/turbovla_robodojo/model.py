@@ -176,6 +176,9 @@ def _load_stats(stats_path: str | None, stats_key: str | None):
             None,
         )
     payload = json.loads(Path(stats_path).read_text(encoding="utf-8"))
+    if "action" in payload and isinstance(payload["action"], dict):
+        payload = {"__flat__": {k: v for k, v in payload.items() if k != "metadata"}}
+        stats_key = "__flat__"  # stats file written without a dataset key
     if stats_key:
         if stats_key not in payload:
             raise KeyError(f"stats_key={stats_key!r} not found in {stats_path}")
@@ -237,7 +240,12 @@ def _read_state_dict(torch, ckpt_path: Path) -> dict:
                 break
     if not isinstance(blob, dict):
         raise TypeError(f"Unsupported checkpoint format: {type(blob)}")
-    return {k.removeprefix("module."): v for k, v in blob.items()}
+    state = {k.removeprefix("module."): v for k, v in blob.items()}
+    # RoboDojo-trained ckpts come from the starVLA framework wrapper, which saves
+    # the policy under `model.` (released ckpts have no prefix).
+    if state and all(k.startswith("model.") for k in state):
+        state = {k[len("model.") :]: v for k, v in state.items()}
+    return state
 
 
 def _remap_legacy_keys(state: dict) -> dict:

@@ -33,6 +33,30 @@ try:
 except ImportError:  # pragma: no cover - stdlib-only CI
     pq = None
 
+# GR00T-style modality map the TurboVLA loader needs (meta/modality.json).
+# RoboDojo packs dual_x5 as [arm_0(6), ee_0(1), arm_1(6), ee_1(1)], which is the
+# same layout as the upstream RoboTwin recipe's modality.json.
+DUAL_ARM_14D_MODALITY = {
+    "action": {
+        "left_joints": {"start": 0, "end": 6, "original_key": "action"},
+        "left_gripper": {"start": 6, "end": 7, "original_key": "action"},
+        "right_joints": {"start": 7, "end": 13, "original_key": "action"},
+        "right_gripper": {"start": 13, "end": 14, "original_key": "action"},
+    },
+    "state": {
+        "left_joints": {"start": 0, "end": 6, "original_key": "observation.state"},
+        "left_gripper": {"start": 6, "end": 7, "original_key": "observation.state"},
+        "right_joints": {"start": 7, "end": 13, "original_key": "observation.state"},
+        "right_gripper": {"start": 13, "end": 14, "original_key": "observation.state"},
+    },
+    "video": {
+        "cam_high": {"original_key": "observation.images.cam_high"},
+        "cam_left_wrist": {"original_key": "observation.images.cam_left_wrist"},
+        "cam_right_wrist": {"original_key": "observation.images.cam_right_wrist"},
+    },
+    "annotation": {"human.action.task_description": {"original_key": "task_index"}},
+}
+
 VIDEO_KEYS = (
     "observation.images.cam_high",
     "observation.images.cam_left_wrist",
@@ -43,7 +67,9 @@ VIDEO_KEYS = (
 def _episode_rows(source: Path) -> dict:
     files = sorted((source / "meta" / "episodes").rglob("*.parquet"))
     if not files:
-        sys.exit(f"[make_task_dataset] no episode metadata under {source}/meta/episodes")
+        sys.exit(
+            f"[make_task_dataset] no episode metadata under {source}/meta/episodes"
+        )
     tables = [pq.read_table(f) for f in files]
     import pyarrow as pa
 
@@ -66,13 +92,31 @@ def _matches(task_text: str, wanted: str) -> bool:
     return bool(words) and all(w.rstrip("s") in text for w in words)
 
 
+def _state_dim(source: Path, info: dict, cols: dict, episode: int) -> int:
+    """Width of observation.state in the source parquet (14 = joints, 16 = ee poses)."""
+    rel = info["data_path"].format(
+        chunk_index=cols["data/chunk_index"][episode],
+        file_index=cols["data/file_index"][episode],
+    )
+    table = pq.read_table(source / rel, columns=["observation.state"], memory_map=True)
+    return len(table.column("observation.state")[0].as_py())
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--source", required=True, help="combined lerobot_v3.0_ee dataset dir")
+    ap.add_argument(
+        "--source", required=True, help="combined lerobot_v3.0_ee dataset dir"
+    )
     ap.add_argument("--out", required=True, help="output dir (one subdir per task)")
-    ap.add_argument("--task", action="append", default=[], help="task id or text (repeatable)")
-    ap.add_argument("--list", action="store_true", help="list tasks with episode counts and exit")
-    ap.add_argument("--copy", action="store_true", help="copy files instead of symlinking")
+    ap.add_argument(
+        "--task", action="append", default=[], help="task id or text (repeatable)"
+    )
+    ap.add_argument(
+        "--list", action="store_true", help="list tasks with episode counts and exit"
+    )
+    ap.add_argument(
+        "--copy", action="store_true", help="copy files instead of symlinking"
+    )
     args = ap.parse_args()
 
     if pq is None:
@@ -101,21 +145,35 @@ def main() -> None:
             sys.exit(f"[make_task_dataset] no episodes match {wanted!r} (try --list)")
         texts = {task_texts[i] for i in keep}
         if len(texts) > 1:
-            sys.exit(f"[make_task_dataset] {wanted!r} matches {len(texts)} tasks: {sorted(texts)}")
+            sys.exit(
+                f"[make_task_dataset] {wanted!r} matches {len(texts)} tasks: {sorted(texts)}"
+            )
 
         dest = out_root / wanted
         (dest / "meta" / "episodes" / "chunk-000").mkdir(parents=True, exist_ok=True)
         kept = episodes.take(keep)
 
         # Link only the parquet/video files this task's episodes reference.
-        needed = {Path(info["data_path"].format(
-            chunk_index=cols["data/chunk_index"][i], file_index=cols["data/file_index"][i]))
-            for i in keep}
+        needed = {
+            Path(
+                info["data_path"].format(
+                    chunk_index=cols["data/chunk_index"][i],
+                    file_index=cols["data/file_index"][i],
+                )
+            )
+            for i in keep
+        }
         for key in VIDEO_KEYS:
-            needed |= {Path(info["video_path"].format(
-                video_key=key,
-                chunk_index=cols[f"videos/{key}/chunk_index"][i],
-                file_index=cols[f"videos/{key}/file_index"][i])) for i in keep}
+            needed |= {
+                Path(
+                    info["video_path"].format(
+                        video_key=key,
+                        chunk_index=cols[f"videos/{key}/chunk_index"][i],
+                        file_index=cols[f"videos/{key}/file_index"][i],
+                    )
+                )
+                for i in keep
+            }
 
         missing = [p for p in sorted(needed) if not (source / p).exists()]
         if missing:
@@ -133,7 +191,9 @@ def main() -> None:
             else:
                 os.symlink(source / rel, target)
 
-        pq.write_table(kept, dest / "meta" / "episodes" / "chunk-000" / "file-000.parquet")
+        pq.write_table(
+            kept, dest / "meta" / "episodes" / "chunk-000" / "file-000.parquet"
+        )
         shutil.copy2(source / "meta" / "tasks.parquet", dest / "meta" / "tasks.parquet")
         if (source / "meta" / "stats.json").exists():
             shutil.copy2(source / "meta" / "stats.json", dest / "meta" / "stats.json")
@@ -142,6 +202,17 @@ def main() -> None:
         task_info["total_frames"] = int(sum(cols["length"][i] for i in keep))
         task_info["total_tasks"] = 1
         (dest / "meta" / "info.json").write_text(json.dumps(task_info, indent=2))
+        # Fail loudly rather than write a modality map that does not match the data.
+        state_dim = _state_dim(source, info, cols, keep[0])
+        if state_dim != 14:
+            sys.exit(
+                f"[make_task_dataset] observation.state is {state_dim}-D, expected 14 "
+                "(dual_x5 joints+grippers). lerobot_v3.0_ee is 16-D end-effector poses: "
+                "use the joint variant lerobot_v3.0."
+            )
+        (dest / "meta" / "modality.json").write_text(
+            json.dumps(DUAL_ARM_14D_MODALITY, indent=2)
+        )
 
         print(
             f"[make_task_dataset] {wanted}: {len(keep)} episodes, "

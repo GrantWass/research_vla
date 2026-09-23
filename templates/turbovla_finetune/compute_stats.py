@@ -8,7 +8,7 @@ quantities over the training frames and writes the JSON the adapter's
 
 GPU-box usage (needs the `lerobot` package from the training env):
   python templates/turbovla_finetune/compute_stats.py \
-    --data-root /data/RoboDojo_ee_lerobot_v30_video \
+    --data-root data/robodojo_tasks_joint \
     --out /runs/turbovla_robodojo_arx_x5_55k/robodojo_stats.json
 
 Only `summarize_frames` (pure numpy) is imported by the repo test-suite, so
@@ -55,24 +55,47 @@ def discover_tasks(data_root: Path) -> list:
 
 
 def load_frames(data_root: Path, tasks: list) -> tuple:
-    """Stack observation.state / action frames across tasks (float64)."""
+    """Stack observation.state / action frames across tasks (float64).
+
+    Reads the LeRobot v3 parquet shards directly (pyarrow), so this runs in any
+    env — no lerobot install, no video decoding. Only the episodes listed in
+    each task's meta/episodes/ are counted, which is what make_task_dataset.py
+    writes for a single-task view of the combined RoboDojo download.
+    """
     try:
-        from lerobot.datasets.lerobot_dataset import LeRobotDataset
+        import pyarrow.parquet as pq
     except ImportError as exc:
         raise ImportError(
-            "compute_stats needs the `lerobot` package (training env on the GPU box)."
+            "compute_stats needs pyarrow (conda activate RoboDojo)."
         ) from exc
+
     state_parts, action_parts = [], []
     for task in tasks:
-        ds = LeRobotDataset(repo_id=task, root=data_root / task)
-        for episode in ds.episodes():
-            frame = ds[episode["episode_index"]]
-            state_parts.append(
-                np.asarray(frame["observation.state"], dtype=np.float64).reshape(-1)
+        root = data_root / task
+        info = json.loads((root / "meta" / "info.json").read_text())
+        episodes = [
+            pq.read_table(f).to_pydict()
+            for f in sorted((root / "meta" / "episodes").rglob("*.parquet"))
+        ]
+        wanted, shards = set(), set()
+        for cols in episodes:
+            wanted.update(cols["episode_index"])
+            shards.update(zip(cols["data/chunk_index"], cols["data/file_index"]))
+        for chunk_index, file_index in sorted(shards):
+            rel = info["data_path"].format(
+                chunk_index=chunk_index, file_index=file_index
             )
-            action_parts.append(
-                np.asarray(frame["action"], dtype=np.float64).reshape(-1)
-            )
+            table = pq.read_table(
+                root / rel,
+                columns=["episode_index", "observation.state", "action"],
+                memory_map=True,
+            ).to_pydict()
+            for ep, state, action in zip(
+                table["episode_index"], table["observation.state"], table["action"]
+            ):
+                if ep in wanted:
+                    state_parts.append(np.asarray(state, dtype=np.float64))
+                    action_parts.append(np.asarray(action, dtype=np.float64))
     if not state_parts:
         raise ValueError(f"No frames found under {data_root} for tasks={tasks}.")
     return np.stack(state_parts), np.stack(action_parts)
@@ -95,6 +118,12 @@ def main() -> None:
     parser.add_argument(
         "--out", default="robodojo_stats.json", help="Output JSON path."
     )
+    parser.add_argument(
+        "--key",
+        default="robodojo_arx_x5",
+        help="Top-level stats key the adapter resolves (deploy.yml stats_key; "
+        "null there auto-resolves when the file has exactly one).",
+    )
     args = parser.parse_args()
 
     data_root = Path(args.data_root)
@@ -113,7 +142,7 @@ def main() -> None:
         f"[stats] {states.shape[0]} frames, state_dim={states.shape[1]}, "
         f"action_dim={actions.shape[1]}"
     )
-    payload = summarize_frames(states, actions)
+    payload = {args.key: summarize_frames(states, actions)}
     payload["metadata"] = {
         "data_root": str(data_root),
         "tasks": tasks,

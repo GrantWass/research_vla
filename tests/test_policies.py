@@ -412,6 +412,45 @@ class TestTurboVLAActionLayout(unittest.TestCase):
         self.assertAlmostEqual(float(out[13]), 0.7, places=5)
 
 
+class TestTurboVLAStatsContract(unittest.TestCase):
+    """compute_stats.py output must load in the adapter (they disagreed once)."""
+
+    @classmethod
+    def setUpClass(cls):
+        try:
+            import numpy  # noqa: F401
+
+            cls.mod = _load_turbovla_adapter_module()
+        except ImportError as exc:
+            raise unittest.SkipTest(f"numpy/XPolicyLab unavailable: {exc}")
+
+    def _stats_file(self, payload):
+        import json
+        import tempfile
+
+        fd = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False)
+        json.dump(payload, fd)
+        fd.close()
+        return fd.name
+
+    def test_keyed_and_flat_payloads_both_load(self):
+        body = {
+            "proprio": {"mean": [0.0] * 14, "std": [1.0] * 14},
+            "action": {"min": [-1.0] * 14, "max": [1.0] * 14},
+        }
+        for name, payload in [
+            ("keyed", {"robodojo_arx_x5": body, "metadata": {"frames": 1}}),
+            ("flat", {**body, "metadata": {"frames": 1}}),
+        ]:
+            with self.subTest(payload=name):
+                mean, std, lo, hi, mask = self.mod._load_stats(
+                    self._stats_file(payload), None
+                )
+                self.assertEqual(len(mean), 14)
+                self.assertEqual(len(hi), 14)
+                self.assertIsNone(mask)
+
+
 class TestTurboVLACheckout(unittest.TestCase):
     def test_setup_pins_turbovla(self):
         with open(os.path.join(ROOT, "setup.sh")) as f:

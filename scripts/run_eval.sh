@@ -31,6 +31,24 @@ if [[ -f "${ROOT}/.lowvram.env" ]]; then
   source "${ROOT}/.lowvram.env"
   echo "[run_eval] low-VRAM profile active (.lowvram.env)" >&2
 fi
+# RoboDojo's per-policy server scripts call `conda activate`, so conda must be on
+# PATH. An interactive shell has it via ~/.bashrc, but `ssh host "bash ..."` and
+# cron/nohup launches do not -- there the server dies with "conda: command not
+# found" before it opens its port. Put conda on PATH here so every launch works.
+if ! command -v conda >/dev/null 2>&1; then
+  for _conda_sh in "${CONDA_ROOT:-}/etc/profile.d/conda.sh" \
+                   "${HOME}/miniconda3/etc/profile.d/conda.sh" \
+                   "${HOME}/anaconda3/etc/profile.d/conda.sh" \
+                   "/opt/conda/etc/profile.d/conda.sh"; do
+    if [[ -n "${_conda_sh}" && -f "${_conda_sh}" ]]; then
+      # shellcheck disable=SC1090
+      source "${_conda_sh}"
+      echo "[run_eval] sourced conda from ${_conda_sh}" >&2
+      break
+    fi
+  done
+fi
+
 # Overridable so tests can stub the harness and inspect the forwarded args.
 ROBODOJO_SH="${ROBODOJO_SH:-${ROOT}/RoboDojo/scripts/robodojo.sh}"
 

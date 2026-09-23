@@ -15,6 +15,9 @@ set -euo pipefail
 
 TEMPLATE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKSPACE_ROOT="$(cd "${TEMPLATE_DIR}/../.." && pwd)"
+# Absolute, because we cd into the turbovla checkout below (this script is
+# archived into the run dir for provenance).
+SCRIPT_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
 TURBOVLA_REPO="${TURBOVLA_REPO:-${WORKSPACE_ROOT}/turbovla}"
 cd "${TURBOVLA_REPO}"
 
@@ -22,7 +25,8 @@ export PYTHONPATH="${TURBOVLA_REPO}:${TURBOVLA_REPO}/third_party/starvla_runtime
 
 : "${ROBODOJO_DATA_ROOT:?Set ROBODOJO_DATA_ROOT to the dir of per-task LeRobot datasets (lerobot_v3.0_ee).}"
 : "${BERT_MODEL_PATH:?Set BERT_MODEL_PATH to a local bert-base-uncased directory.}"
-: "${TURBOVLA_INIT_CKPT:?Set TURBOVLA_INIT_CKPT to groundingdino_swint_ogc.pth.}"
+: "${TURBOVLA_INIT_CKPT:?Set TURBOVLA_INIT_CKPT to groundingdino_swint_ogc.pth, or a released TurboVLA ckpt with TURBOVLA_INIT_FULL=1.}"
+export TURBOVLA_INIT_FULL="${TURBOVLA_INIT_FULL:-false}"
 : "${DINOV3_MODEL_PATH:?Set DINOV3_MODEL_PATH to a local DINOv3 model directory.}"
 
 OVERLAY="${TURBOVLA_REPO}/experiments/robodojo"
@@ -96,7 +100,7 @@ echo "[INFO] global_batch=$((num_processes * per_device_batch_size * gradient_ac
 echo "[INFO] lr=${learning_rate} warmup=${warmup_steps} ema_decay=${ema_decay}"
 
 mkdir -p "${output_dir}"
-cp "$0" "${output_dir}/"
+cp "${SCRIPT_PATH}" "${output_dir}/"
 cp "${TURBOVLA_REPO}/third_party/starvla_runtime/starVLA/training/train_robotwin_clean_act_pi05_recipe.py" "${output_dir}/"
 
 "${launcher_python}" -m accelerate.commands.launch \

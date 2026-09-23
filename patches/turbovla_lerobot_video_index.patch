@@ -1,0 +1,21 @@
+diff --git a/third_party/starvla_runtime/starVLA/dataloader/gr00t_lerobot/datasets.py b/third_party/starvla_runtime/starVLA/dataloader/gr00t_lerobot/datasets.py
+index 58ce17d..e0232ea 100644
+--- a/third_party/starvla_runtime/starVLA/dataloader/gr00t_lerobot/datasets.py
++++ b/third_party/starvla_runtime/starVLA/dataloader/gr00t_lerobot/datasets.py
+@@ -1599,10 +1599,14 @@ class LeRobotSingleDataset(Dataset):
+             else:
+                 video_chunk_index = episode_meta["data/chunk_index"]
+                 video_file_index = episode_meta["data/file_index"]
++            # LOCAL PATCH: use the video indices resolved above. Upstream formatted
++            # the path with the DATA file index, so any dataset whose videos are not
++            # numbered like its parquet shards (e.g. RoboDojo) read the wrong file or
++            # crashed with FileNotFoundError.
+             video_filename = self.video_path_pattern.format(
+                 video_key=original_key,
+-                chunk_index=episode_meta["data/chunk_index"],
+-                file_index=episode_meta["data/file_index"],
++                chunk_index=video_chunk_index,
++                file_index=video_file_index,
+             )
+         return self.dataset_path / video_filename
+ 

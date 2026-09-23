@@ -1,24 +1,30 @@
 diff --git a/env_cfg/sim/sim_config.yml b/env_cfg/sim/sim_config.yml
-index fde7dc4..43bffe1 100644
+index fde7dc4..d9b7794 100644
 --- a/env_cfg/sim/sim_config.yml
 +++ b/env_cfg/sim/sim_config.yml
-@@ -4,3 +4,23 @@ render_interval: 10
+@@ -2,5 +2,28 @@ decimation: 1
+ dt: 0.004
+ render_interval: 10
  scene:
-   num_envs: 10
+-  num_envs: 10
++  # LOCAL: one env per eval. Batched adapters (pi0.5 sets eval_batch: true) would
++  # otherwise spawn 10 parallel sims here: ~3x the RAM/VRAM of the single-env
++  # adapters, and an unequal comparison. Also makes the physx sizing below honest.
++  num_envs: 1
    env_spacing: 7
-+# LOCAL low-VRAM render profile (16 GB GPU shared with a 7B policy server).
++# LOCAL low-VRAM render profile (16 GB GPU shared with a 3-7B policy server).
++# Denoiser stays ON: without it the cameras are visibly speckled, which is a
++# distribution shift for the policy, not just a cosmetic change.
 +render:
 +  rendering_mode: performance
-+  antialiasing_mode: "Off"
++  antialiasing_mode: "DLAA"
 +  enable_translucency: false
 +  enable_reflections: false
 +  enable_global_illumination: false
-+  enable_dl_denoiser: false
-+  enable_ambient_occlusion: false
 +  carb_settings:
 +    /rtx-transient/resourcemanager/enableTextureStreaming: true
 +    /rtx-transient/resourcemanager/texturestreaming/memoryBudget: 0.1
-+# LOCAL: PhysX GPU buffers sized for num_envs=1 eval (defaults target 10 envs).
++# LOCAL: PhysX GPU buffers sized for the num_envs=1 eval above (defaults target 10).
 +physx:
 +  gpu_max_rigid_contact_count: 1048576
 +  gpu_max_rigid_patch_count: 81920
