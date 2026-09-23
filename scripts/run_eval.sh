@@ -48,6 +48,16 @@ if ! command -v conda >/dev/null 2>&1; then
     fi
   done
 fi
+# The eval CLIENT (XPolicyLab/utils/setup_env_client.sh) calls `python` directly
+# and never activates an env -- upstream assumes you launched from the activated
+# sim env. The policy SERVER activates its own env, so only the client breaks,
+# and it breaks after the server is already up ("python: command not found").
+if ! command -v python >/dev/null 2>&1; then
+  if command -v conda >/dev/null 2>&1; then
+    conda activate "${ROBODOJO_ENV:-RoboDojo}" 2>/dev/null \
+      && echo "[run_eval] activated sim env ${ROBODOJO_ENV:-RoboDojo}" >&2
+  fi
+fi
 
 # Overridable so tests can stub the harness and inspect the forwarded args.
 ROBODOJO_SH="${ROBODOJO_SH:-${ROOT}/RoboDojo/scripts/robodojo.sh}"
