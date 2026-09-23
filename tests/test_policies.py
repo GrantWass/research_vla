@@ -428,9 +428,10 @@ class TestTurboVLAStatsContract(unittest.TestCase):
         import json
         import tempfile
 
-        fd = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False)
-        json.dump(payload, fd)
-        fd.close()
+        with tempfile.NamedTemporaryFile(
+            "w", suffix=".json", delete=False
+        ) as fd:
+            json.dump(payload, fd)
         return fd.name
 
     def test_keyed_and_flat_payloads_both_load(self):
@@ -446,8 +447,13 @@ class TestTurboVLAStatsContract(unittest.TestCase):
                 mean, std, lo, hi, mask = self.mod._load_stats(
                     self._stats_file(payload), None
                 )
-                self.assertEqual(len(mean), 14)
-                self.assertEqual(len(hi), 14)
+                for name, vec in [
+                    ("mean", mean),
+                    ("std", std),
+                    ("min", lo),
+                    ("max", hi),
+                ]:
+                    self.assertEqual(len(vec), 14, name)
                 self.assertIsNone(mask)
 
 
