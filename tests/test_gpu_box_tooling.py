@@ -17,11 +17,18 @@ XPL = os.path.join(ROBODOJO, "XPolicyLab")
 PATCHES = os.path.join(ROOT, "patches")
 ADAPTER_SRC = os.path.join(ROOT, "adapters", "turbovla_robodojo")
 
-# patch file -> repo it applies to
+TURBOVLA = os.path.join(ROOT, "turbovla")
+
+# patch file -> repo it applies to. Every .patch must be listed here
+# (test_every_patch_has_a_target); a target whose checkout is absent on this
+# machine is skipped rather than failed, since the turbovla training repo is
+# only cloned on the GPU box.
 PATCH_TARGETS = {
     "robodojo_lowvram_sim.patch": ROBODOJO,
     "xpolicylab_openvla_oft_lowvram.patch": XPL,
     "xpolicylab_pi05_mem_fraction.patch": XPL,
+    "turbovla_full_ckpt_init.patch": TURBOVLA,
+    "turbovla_lerobot_video_index.patch": TURBOVLA,
 }
 
 
@@ -65,6 +72,8 @@ class TestPatchesApply(unittest.TestCase):
     def test_patches_apply_or_are_applied(self):
         for name, repo in PATCH_TARGETS.items():
             with self.subTest(patch=name):
+                if not os.path.isdir(repo):
+                    self.skipTest(f"{os.path.basename(repo)} checkout missing")
                 path = os.path.join(PATCHES, name)
                 fwd = run(["git", "-C", repo, "apply", "--check", path])
                 rev = run(["git", "-C", repo, "apply", "--check", "--reverse", path])
