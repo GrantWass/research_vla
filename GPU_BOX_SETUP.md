@@ -85,8 +85,9 @@ meaningless:
 ### Why OpenVLA-OFT scores zero
 
 This matches the RoboDojo paper, which reports **0.21 score / 0.02% success**
-for OpenVLA-OFT on the sim benchmark versus **11.41 / 6.91%** for pi0.5 (best
-policies cluster under 15%; human teleop is 76%). It is not a setup fault, and
+for OpenVLA-OFT on the sim benchmark versus **11.41 / 6.91%** for pi0.5, which is
+the best policy in that table; human expert teleop is 80.42 / 76.03%
+(Table 1, [arXiv:2607.04434](https://arxiv.org/abs/2607.04434)). It is not a setup fault, and
 we verified that separately rather than assuming it:
 
 - **Input mapping verified statically.** The checkpoint's own

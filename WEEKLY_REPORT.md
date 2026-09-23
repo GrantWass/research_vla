@@ -122,10 +122,22 @@ demonstration trajectory is predictable from the current joint configuration. It
 cannot stack bowls, because that requires knowing where the bowls actually are.
 Hence 0.0 partial credit on all 20 episodes: the arms never arrive.
 
-**This matches the published result.** The RoboDojo paper reports 0.21 score /
-0.02% success for OpenVLA-OFT against 11.41 / 6.91% for pi0.5. Best policies on
-this benchmark cluster under 15% success; human teleoperation reaches 76%. Our
-0/20 is the expected behavior of this checkpoint, not a setup fault.
+**This matches the published result.** From Table 1 of the RoboDojo paper
+([arXiv:2607.04434](https://arxiv.org/abs/2607.04434)), captioned:
+
+> "RoboDojo Simulation Benchmark Leaderboard. Each cell reports score / success
+> rate for a capability dimension."
+
+| Policy | Score / success rate (average) |
+|---|---|
+| OpenVLA-OFT | **0.21 / 0.02%** |
+| pi0.5 (best policy in the table) | 11.41 / 6.91% |
+| Human expert (teleop) | 80.42 / 76.03% |
+
+OpenVLA-OFT succeeding roughly **2 times in 10,000** is the published behavior of
+this checkpoint. Our 0/20 is exactly what that predicts, and is not a setup fault.
+Note also that even the *best* policy in the paper reaches under 7% success against
+76% for a human — this benchmark is hard by design.
 
 **It is not a quantization artifact.** 4-bit and 8-bit agree to within ~0.001 MAE.
 
@@ -213,6 +225,37 @@ The model is **worse than doing nothing**, so the weights have not learned the t
 But its predictions *do* respond to the cameras (0.339 < 0.434), so the observation
 pipeline is wired correctly. **Undertrained, not miswired** — two causes that look
 identical from the 0/20 alone.
+
+### Is it improving at all?
+
+Yes — just far too slowly to show up as a success.
+`scripts/diag_turbovla_step_sweep.py` scores the same windows at both saved steps:
+
+| Checkpoint | MAE |
+|---|---:|
+| step 1000, EMA | 0.3476 |
+| **step 2000, EMA** | **0.3394** |
+| step 1000, raw weights | 0.3907 |
+| step 2000, raw weights | 0.4146 |
+| hold still (baseline) | 0.2116 |
+
+Two things to read here.
+
+**The EMA weights are improving, at about 0.008 MAE per 1,000 steps.** The direction
+is right and the optimization is working. But the gap still to close just to match
+*doing nothing* is 0.34 − 0.21 = 0.13. At the observed rate that is on the order of
+10⁴ more steps — the same order as the recipe's own 55,000. (A crude linear
+extrapolation; real learning curves decelerate, so treat it as a rough floor, and a
+larger batch would cover the same ground in fewer steps.)
+
+**The raw weights got *worse* from step 1000 to 2000** (0.391 → 0.415) and are
+consistently worse than the EMA copy. That is the signature of a model still early
+in optimization, where the instantaneous weights bounce around and the moving
+average is what carries the progress. It is further evidence that the run stopped in
+the unstable early phase rather than converging to a bad solution.
+
+So the honest answer to "why did it not improve" is that **it did improve — by about
+2% of the distance it needed to cover.**
 
 ---
 
@@ -317,6 +360,7 @@ without them).
 - `scripts/lowvram.sh` — `apply` / `revert` / `status` for the 16 GB profile.
 - `patches/` — five upstream fixes, each with its cause recorded; tests check they
   still apply to the pinned checkouts.
-- `scripts/diag_openvla_obs.py`, `scripts/diag_turbovla_actions.py` — offline action
-  diagnostics, no simulator required.
+- `scripts/diag_openvla_obs.py`, `scripts/diag_turbovla_actions.py`,
+  `scripts/diag_turbovla_step_sweep.py` — offline action diagnostics, no simulator
+  required.
 - `templates/turbovla_finetune/` — dataset carving, stats, training recipe.

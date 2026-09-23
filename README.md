@@ -30,6 +30,7 @@ adapters, tests, templates, and docs; the simulators and models live upstream.
 | `scripts/setup_policy.sh` | One idempotent command per policy (`openvla`, `pi05`, `turbovla`, `demo`): env, checkpoint, and the fixes the upstream installers need. |
 | `scripts/install_turbovla_deploy.sh` | Points the TurboVLA adapter at a checkpoint we fine-tuned (renders `templates/turbovla_finetune/deploy.robodojo.yml`), instead of the released RoboTwin weights. |
 | `scripts/diag_turbovla_actions.py` | Scores TurboVLA's predicted actions against ground truth without the simulator. Separates "the model never learned the task" from "the model learned it but the deployment path is wrong" after a 0/N sim result. |
+| `scripts/diag_turbovla_step_sweep.py` | Scores the same windows at each saved training step, to tell "the fine-tune did nothing" from "it is learning but did not get far enough". |
 | `scripts/diag_openvla_obs.py` | Offline check that a policy's actions actually respond to the cameras: scores predicted vs ground-truth actions on real episodes under observation variants (wrists swapped, cameras blacked out). No simulator needed. |
 | `scripts/lowvram.sh` | `apply`/`revert`/`status` for the 16 GB GPU profile (cheaper sim rendering and PhysX buffers, 4-bit OpenVLA, JAX/PyTorch memory env). |
 | `patches/` | Upstream fixes applied by the two scripts above; `make test` checks they still apply to the pinned checkouts. |
