@@ -38,12 +38,14 @@ POLICY = f"{ROOT}/RoboDojo/XPolicyLab/policy/TurboVLA"
 N_EP = int(sys.argv[1]) if len(sys.argv) > 1 else 5
 
 e = pq.read_table(f"{D}/meta/episodes/chunk-000/file-000.parquet").to_pydict()
-info = json.load(open(f"{D}/meta/info.json"))
+with open(f"{D}/meta/info.json") as _f:
+    info = json.load(_f)
 
 sys.path.insert(0, POLICY)
-import model as adapter  # noqa: E402
+import model as adapter
 
-cfg = yaml.safe_load(open(f"{POLICY}/deploy.yml"))
+with open(f"{POLICY}/deploy.yml") as _f:
+    cfg = yaml.safe_load(_f)
 cfg.update({
     "env_cfg_type": "arx_x5",
     "bench_name": "RoboDojo",
