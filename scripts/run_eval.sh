@@ -59,6 +59,12 @@ if ! command -v python >/dev/null 2>&1; then
   fi
 fi
 
+# Isaac Sim prompts for the Omniverse EULA on a terminal and aborts when stdin is
+# not one ("Unable to bootstrap inner kit kernel: EOF when reading a line"), so a
+# non-interactive eval dies at sim startup. RoboDojo's own scripts/install.sh
+# exports this too; carry the same acceptance into eval launches.
+export OMNI_KIT_ACCEPT_EULA="${OMNI_KIT_ACCEPT_EULA:-YES}"
+
 # Overridable so tests can stub the harness and inspect the forwarded args.
 ROBODOJO_SH="${ROBODOJO_SH:-${ROOT}/RoboDojo/scripts/robodojo.sh}"
 
