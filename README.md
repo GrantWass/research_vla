@@ -36,6 +36,7 @@ adapters, tests, templates, and docs; the simulators and models live upstream.
 | `OPENVLA_ROBODOJO_SETUP.md` | Full guide: what was pulled, why RoboDojo, Mac-verified steps, Linux GPU setup, every eval command, troubleshooting. |
 | `POLICIES_ROBODOJO.md` | Multi-model eval: registry, per-model setup, all `run_eval.sh` commands, adding the next model. |
 | `POLICIES_ROBODOJO_SIMPLE.md` | Plain-language overview: the course, the brains (TurboVLA + pi0.5), and the glue between them. |
+| `WEEKLY_REPORT.md` | Weekly write-up: results, the input-mapping verification, why each policy scores what it does, the fine-tune setup, the 16 GB adaptations and next steps. |
 | `PROGRESS_REPORT.md` | GRA status: wiring evidence, results skeleton, blockers/next steps. |
 | `REMOTE_ACCESS.md` | SSH into the Windows box from any network (OpenSSH server, key auth, Tailscale, troubleshooting). |
 | `CONTRIBUTING.md` | Branch/commit conventions, where each kind of work belongs, secrets handling, PR checklist. |

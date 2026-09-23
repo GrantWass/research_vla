@@ -89,11 +89,37 @@ for OpenVLA-OFT on the sim benchmark versus **11.41 / 6.91%** for pi0.5 (best
 policies cluster under 15%; human teleop is 76%). It is not a setup fault, and
 we verified that separately rather than assuming it:
 
-- `scripts/diag_openvla_obs.py` scores predicted vs ground-truth actions on real
-  episodes under observation variants. In 4-bit the predictions respond to the
-  cameras (max change 0.33 when blacked out) and beat a hold-still baseline
-  (MAE 0.079 vs 0.128), so the observation path is wired correctly.
-- That diagnostic is also what caught a real bug: in **8-bit** the vision
+- **Input mapping verified statically.** The checkpoint's own
+  `dataset_statistics.json` expects a 14-D proprio vector whose grippers sit at
+  indices 6 and 13 -- exactly RoboDojo's packed
+  `[arm_0(6), ee_0(1), arm_1(6), ee_1(1)]`. Element-by-element the dataset we
+  feed matches that distribution, so there is no arm swap or permutation.
+  Images go in as ALOHA expects: `cam_high` primary, then left and right wrist.
+- **The cameras barely matter to this checkpoint.** `scripts/diag_openvla_obs.py`
+  scores predicted vs ground-truth actions under observation variants
+  (5 episodes, 10 windows, 25-step chunks):
+
+  | Variant | MAE (4-bit) | MAE (8-bit) |
+  |---|---:|---:|
+  | as-wired | 0.0913 | 0.0906 |
+  | wrists swapped | 0.0856 | 0.0850 |
+  | head only | 0.0861 | 0.0856 |
+  | all cameras black | 0.0882 | 0.0875 |
+  | hold still (baseline) | 0.1349 | 0.1349 |
+
+  It beats hold-still, so it predicts real motion -- but blacking out every
+  camera or swapping the wrists does **not** make it worse. The policy is
+  largely vision-independent, predicting from proprioception and the
+  instruction. That is enough for a low action MAE and not nearly enough to
+  locate a bowl, which is why it scores 0 while pi0.5 reaches 50% through the
+  *same* camera pipeline.
+- **Not a quantization artifact:** 4-bit and 8-bit agree to ~0.001 MAE. bf16
+  needs ~15.4 GB and does not fit alongside the display on a 16 GB card, so the
+  unquantized control is still open.
+- Note the limit of this test: because the checkpoint is camera-insensitive,
+  MAE cannot detect a camera mis-mapping. The proprio check above is what
+  establishes the input mapping, not the MAE column.
+- The same diagnostic caught a real bug: in **8-bit** the vision
   backbone was being quantized and came out effectively blind -- blacking out
   every camera moved the actions by at most 0.02. Fixed by extending
   `llm_int8_skip_modules` to the 8-bit path (commit db9a2f2).
