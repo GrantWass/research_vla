@@ -37,12 +37,37 @@ results in this file's history are superseded.
 | pi0.5 (3B) | official `RoboDojo-sim-arx_x5-joint-0`, bf16 | RoboDojo, all tasks | **10/20 (50%)** | 56.8 |
 | OpenVLA-OFT (7B) | official `RoboDojo-sim-arx_x5-joint-1`, 4-bit | RoboDojo, all tasks | 0/20 | 0.0 |
 | TurboVLA (0.2B) | released RoboTwin ckpt | RoboTwin, different robot | 0/20 | 0.0 |
-| TurboVLA (0.2B) | ours, `steps_2000_ema` | **`stack_bowls` only** | _see below_ | |
+| TurboVLA (0.2B) | ours, `steps_2000_ema` | **`stack_bowls` only** | 0/20 | 0.0 |
 
 Read the last row as a **specialist**, not a peer: it is fine-tuned on this one
 task, while the first three are **generalist** checkpoints evaluated on one of
 the many tasks they cover. It answers "can this 0.2B model learn this task
 here", not "is it better than pi0.5".
+
+### Why the fine-tuned TurboVLA also scores zero: undertrained, not miswired
+
+The fine-tune ran 2,000 steps at global batch 16, so it saw 32,000 samples
+against a 44,774-frame dataset -- **0.71 epochs, never one full pass**, and only
+1,000 steps past the 1,000-step warmup. The recipe's own default is 55,000 steps
+at batch 48 (2.64 M samples), so this is **~1.2% of the intended training**. The
+run was also cut short by a host-RAM OOM at a checkpoint save.
+
+`scripts/diag_turbovla_actions.py` confirms that reading rather than assuming
+it, by scoring predicted vs ground-truth actions offline on the task's own data:
+
+| Variant | MAE vs ground truth |
+|---|---:|
+| real cameras | 0.339 |
+| cameras blacked out | 0.434 |
+| **hold still (do nothing)** | **0.212** |
+
+The model is *worse than doing nothing*, so the weights have not learned the
+task. But it does respond to the cameras (0.339 < 0.434), so the observation
+path is wired correctly -- this is a training-budget result, not a deployment
+bug. Compare OpenVLA-OFT, which beats its own hold-still baseline
+(0.079 vs 0.128) and still scores 0 in the sim.
+
+Run this check before reading anything into a 0/N sim result.
 
 ### Confounds removed before this run
 
