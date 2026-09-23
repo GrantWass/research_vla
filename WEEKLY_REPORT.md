@@ -169,11 +169,13 @@ model is weak" unless something explicitly tests whether the cameras matter.
 We fine-tuned the 0.2B TurboVLA on `stack_bowls` alone to test a small specialist
 against large generalists.
 
-**Data.** RoboDojo ships one combined LeRobot dataset holding every task —
-3,500 episodes, 1.86 M frames, 120 GB. `templates/turbovla_finetune/make_task_dataset.py`
-carves a single task out of it without copying frame data: it symlinks the data and
-video files that task's episodes reference and rewrites only the metadata. This took
-the requirement from **120 GB to ~3 GB** (100 episodes, 44,774 frames). It also
+**Data.** RoboDojo ships one combined LeRobot dataset covering every task —
+3,500 episodes across 35 tasks, 1,856,102 frames, **117 GB** of LFS objects.
+`templates/turbovla_finetune/make_task_dataset.py` carves a single task out of it
+without copying frame data: it symlinks the data and video files that task's
+episodes reference and rewrites only the metadata, so only that task's LFS objects
+need fetching. This took the requirement from **117 GB to 3.1 GB**
+(100 episodes, 44,774 frames). It also
 writes the GR00T `modality.json` the trainer needs, and refuses to run on 16-D
 end-effector data rather than silently mislabeling it as 14-D joints.
 
@@ -254,8 +256,9 @@ in optimization, where the instantaneous weights bounce around and the moving
 average is what carries the progress. It is further evidence that the run stopped in
 the unstable early phase rather than converging to a bad solution.
 
-So the honest answer to "why did it not improve" is that **it did improve — by about
-2% of the distance it needed to cover.**
+So the honest answer to "why did it not improve" is that **it did improve, just
+barely**: MAE fell 2.4% in relative terms over those 1,000 steps, which is about 6%
+of the distance from where it started to merely matching the do-nothing baseline.
 
 ---
 
@@ -306,12 +309,15 @@ profile.
 | `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` | Reduces fragmentation |
 
 Measured peak usage (policy + sim): demo 5.7 GB · TurboVLA 7.5 GB · pi0.5 14.4 GB ·
-OpenVLA 14.9 GB.
+OpenVLA 14.9 GB. These were taken *before* antialiasing was restored, so add roughly
+0.4 GB to each for the current profile — which is what makes OpenVLA the tight one.
 
 ### Limitations this imposes
 
-- **OpenVLA runs 4-bit, not bf16.** Quantization changes its outputs. bf16 needs
-  ~15.4 GB and won't fit alongside the display manager's ~250 MB.
+- **OpenVLA runs 4-bit, not bf16.** Quantization changes its outputs. The card
+  exposes 15.55 GiB usable; loading bf16 got to 15.11 GiB and then failed asking for
+  another 252 MiB, with the display manager holding part of the remainder. So the
+  unquantized control needs a bigger GPU or a headless box, not a tweak.
 - **Reduced rendering**, though antialiasing is restored after learning what turning
   it off cost.
 - **Training is RAM-bound, not just VRAM-bound.** Batch 8 OOMs the GPU (we use 4 ×
@@ -332,10 +338,12 @@ Ranked by what changes a conclusion rather than confirming one.
    reaching ~7 epochs. Only then does the specialist-vs-generalist comparison mean
    anything. Requires fixing the checkpoint-save RAM ceiling first (save less often,
    or offload optimizer state).
-2. **Get the unquantized OpenVLA control.** Either free ~250 MB by stopping the
-   display manager, or run the policy server on a larger GPU
+2. **Get the unquantized OpenVLA control.** bf16 overran the card by ~250 MB, so
+   going headless *might* just fit it — but it is marginal enough that the reliable
+   route is running the policy server on a larger GPU
    (`robodojo.sh server --bind-host 0.0.0.0`). This closes the one open question in
-   §3 — whether quantization contributes to the camera-insensitivity.
+   §3 — whether quantization contributes to the camera-insensitivity. Note the
+   diagnostic needs no simulator, so any 24 GB machine can answer it.
 3. **Probe *why* OpenVLA ignores its cameras.** The FiLM conditioning path is the
    prime suspect. If the released checkpoint genuinely learned a vision-independent
    policy, that is a finding worth writing up on its own.
@@ -350,9 +358,9 @@ Ranked by what changes a conclusion rather than confirming one.
 ## Appendix: reproducibility
 
 Everything above is in the repository; a fix that exists only on one machine does not
-count. 72 tests run on a laptop with no GPU, and are additionally verified on the GPU
-box against the real upstream checkouts (the patch-application tests are meaningless
-without them).
+count. The suite is 72 cases (**71 pass, 1 skipped**, plus 30 subtests): it runs on a
+laptop with no GPU, and is additionally run on the GPU box against the real upstream
+checkouts, since the patch-application tests are vacuous without them.
 
 - `GPU_BOX_SETUP.md` — fresh Linux → driver → Isaac Sim → all four policies, with
   measured VRAM and troubleshooting for every failure hit.

@@ -35,6 +35,7 @@ D = os.environ.get(
     "DIAG_DATASET", f"{ROOT}/data/robodojo_tasks_joint/stack_bowls"
 )
 POLICY = f"{ROOT}/RoboDojo/XPolicyLab/policy/TurboVLA"
+TASK = os.path.basename(D.rstrip("/"))  # dataset dir is named after the task
 N_EP = int(sys.argv[1]) if len(sys.argv) > 1 else 5
 
 e = pq.read_table(f"{D}/meta/episodes/chunk-000/file-000.parquet").to_pydict()
@@ -49,7 +50,7 @@ with open(f"{POLICY}/deploy.yml") as _f:
 cfg.update({
     "env_cfg_type": "arx_x5",
     "bench_name": "RoboDojo",
-    "task_name": "stack_bowls",
+    "task_name": TASK,
     "action_type": "joint",
     "action_dim": 14,
     "seed": 0,
