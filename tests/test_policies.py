@@ -42,6 +42,14 @@ ADAPTER_FILES = [
     "install.sh",
 ]
 
+# deploy.yml is machine-local config: on a GPU box it points at whichever
+# checkpoint that box serves (see scripts/install_turbovla_deploy.sh), so the
+# installed copy is EXPECTED to differ from the adapter default. Asserting
+# byte-equality here is what used to drive install_adapter.sh --force and
+# silently revert a deployed fine-tuned config. Its schema is checked by
+# test_deploy_yml_contract and tests/test_gpu_box_tooling.py instead.
+ADAPTER_CONFIG_FILES = {"deploy.yml"}
+
 
 def run(cmd, cwd=ROOT, timeout=120):
     return subprocess.run(
@@ -58,6 +66,8 @@ def ensure_adapter_installed():
     """
     r = run(["bash", "scripts/install_adapter.sh", "turbovla"])
     if r.returncode != 0:
+        # --force, never --force-config: re-syncing adapter CODE must not reset
+        # deploy.yml, which on a GPU box names the checkpoint being served.
         r = run(["bash", "scripts/install_adapter.sh", "turbovla", "--force"])
     assert r.returncode == 0, f"install_adapter failed:\n{r.stderr}"
 
@@ -300,6 +310,8 @@ class TestTurboVLAAdapter(unittest.TestCase):
 
     def test_installed_matches_source(self):
         for fname in ADAPTER_FILES:
+            if fname in ADAPTER_CONFIG_FILES:
+                continue
             with self.subTest(file=fname):
                 self.assertTrue(
                     filecmp.cmp(

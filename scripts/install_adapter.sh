@@ -12,13 +12,25 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 FORCE=0
+FORCE_CONFIG=0
 POLICY=""
+
+# deploy.yml is machine-local CONFIG, not code: it points at whichever checkpoint
+# this box should serve, which for a model we fine-tuned here is NOT the stock
+# released one the adapter ships. --force must not clobber it, or `make test`
+# (which force-syncs the adapter) silently reverts a deployed fine-tuned config
+# -- and an eval launched afterwards reports numbers for the wrong checkpoint.
+# Use --force-config to deliberately reset it to the adapter's default.
+CONFIG_FILES=("deploy.yml")
 
 for arg in "$@"; do
   case "${arg}" in
     --force) FORCE=1 ;;
+    --force-config) FORCE=1; FORCE_CONFIG=1 ;;
     -h|--help)
-      echo "Usage: bash scripts/install_adapter.sh <policy> [--force]"
+      echo "Usage: bash scripts/install_adapter.sh <policy> [--force] [--force-config]"
+      echo "  --force         overwrite adapter CODE that differs"
+      echo "  --force-config  also overwrite deploy.yml (resets the served checkpoint)"
       exit 0
       ;;
     *) POLICY="${arg}" ;;
@@ -53,6 +65,15 @@ for src_file in "${SRC}"/*; do
   [[ -f "${src_file}" ]] || continue
   base="$(basename "${src_file}")"
   dest_file="${DEST}/${base}"
+  is_config=0
+  for cfg in "${CONFIG_FILES[@]}"; do
+    [[ "${base}" == "${cfg}" ]] && is_config=1
+  done
+  if [[ "${is_config}" -eq 1 && "${FORCE_CONFIG}" -ne 1 && -f "${dest_file}" ]] \
+     && ! cmp -s "${src_file}" "${dest_file}"; then
+    echo "[install_adapter] kept local config: ${base} (--force-config to reset)"
+    continue
+  fi
   if [[ -f "${dest_file}" ]] && cmp -s "${src_file}" "${dest_file}"; then
     echo "[install_adapter] unchanged: ${base}"
   elif [[ -f "${dest_file}" && "${FORCE}" -ne 1 ]]; then
