@@ -25,26 +25,53 @@ These single episodes prove that each model is configured correctly for Isaac Si
 They are **not** benchmark numbers: the low-VRAM profile degrades rendering, OpenVLA
 runs 4-bit, and the TurboVLA ckpt was trained on a different robot.
 
-## Three-model comparison (same robot, same task)
+## Model comparison (same robot, same task, same renderer)
 
-`stack_bowls`, `env_cfg=arx_x5`, joint actions, seed 0, 5 episodes each,
-sequential on the reference box with the low-VRAM profile:
+`stack_bowls`, `env_cfg=arx_x5`, joint actions, seed 0, **20 episodes** each,
+run sequentially on the reference box. Two confounds found in the first pass
+were removed before these numbers were taken (see below), so earlier 5-episode
+results in this file's history are superseded.
 
-| Policy | Checkpoint | Success | Score | Wall time |
-|---|---|---:|---:|---:|
-| pi0.5 | official `RoboDojo-sim-arx_x5-joint-0`, bf16 | **3/5** | 66.0 | 4.5 min |
-| OpenVLA-OFT | official `RoboDojo-sim-arx_x5-joint-1`, 4-bit | 0/5 | 0.0 | 10 min |
-| TurboVLA | released RoboTwin ckpt (different robot) | 0/5 | 0.0 | 8.2 min |
+| Policy | Checkpoint | Trained on | Success | Score |
+|---|---|---|---:|---:|
+| pi0.5 (3B) | official `RoboDojo-sim-arx_x5-joint-0`, bf16 | RoboDojo, all tasks | **10/20 (50%)** | 56.8 |
+| OpenVLA-OFT (7B) | official `RoboDojo-sim-arx_x5-joint-1`, 4-bit | RoboDojo, all tasks | 0/20 | 0.0 |
+| TurboVLA (0.2B) | released RoboTwin ckpt | RoboTwin, different robot | 0/20 | 0.0 |
+| TurboVLA (0.2B) | ours, `steps_2000_ema` | **`stack_bowls` only** | _see below_ | |
 
-OpenVLA-OFT scoring zero matches the RoboDojo paper, which reports **0.21 score
-/ 0.02% success** for it on the sim benchmark versus **11.41 / 6.91%** for pi0.5
-(best policies cluster under 15%; human teleop is 76%). It is not a setup fault.
-`scripts/diag_openvla_obs.py` confirms the observation path: in 4-bit the
-predicted actions respond to the cameras (max change 0.33 when they are blacked
-out) and beat a hold-still baseline (MAE 0.079 vs 0.128).
+Read the last row as a **specialist**, not a peer: it is fine-tuned on this one
+task, while the first three are **generalist** checkpoints evaluated on one of
+the many tasks they cover. It answers "can this 0.2B model learn this task
+here", not "is it better than pi0.5".
 
-TurboVLA needs a RoboDojo-trained ckpt before it belongs in this table
-(`templates/turbovla_finetune/`).
+### Confounds removed before this run
+
+Both were in `patches/robodojo_lowvram_sim.patch` and both made earlier numbers
+meaningless:
+
+1. **`antialiasing_mode: "Off"`** left every camera frame heavily speckled. That
+   is a distribution shift for a vision policy, not a cosmetic setting, and
+   every policy was seeing it. DLAA restored, at +0.37 GB VRAM.
+2. **pi0.5 was running 10 parallel sims.** Its adapter sets `eval_batch: true`,
+   which the shared `num_envs: 10` honored, while the other adapters ran a
+   single env -- unequal compute, and the shrunk PhysX buffers were sized for
+   1 env regardless. `num_envs` is now pinned to 1.
+
+### Why OpenVLA-OFT scores zero
+
+This matches the RoboDojo paper, which reports **0.21 score / 0.02% success**
+for OpenVLA-OFT on the sim benchmark versus **11.41 / 6.91%** for pi0.5 (best
+policies cluster under 15%; human teleop is 76%). It is not a setup fault, and
+we verified that separately rather than assuming it:
+
+- `scripts/diag_openvla_obs.py` scores predicted vs ground-truth actions on real
+  episodes under observation variants. In 4-bit the predictions respond to the
+  cameras (max change 0.33 when blacked out) and beat a hold-still baseline
+  (MAE 0.079 vs 0.128), so the observation path is wired correctly.
+- That diagnostic is also what caught a real bug: in **8-bit** the vision
+  backbone was being quantized and came out effectively blind -- blacking out
+  every camera moved the actions by at most 0.02. Fixed by extending
+  `llm_int8_skip_modules` to the 8-bit path (commit db9a2f2).
 
 ## 1. OS and NVIDIA driver
 
@@ -176,10 +203,15 @@ bash scripts/lowvram.sh apply     # status | revert
   `XLA_PYTHON_CLIENT_MEM_FRACTION=0.45` for pi0.5. At 0.55, Isaac Sim hit
   Vulkan OOM on textures.
 
-With the profile on, rendered frames show speckle noise (denoiser off), and
-4-bit changes OpenVLA's outputs. Use it for wiring checks and development.
-Report benchmark numbers from a 24 GB+ GPU, or split the policy server onto a
-bigger machine (`robodojo.sh server --bind-host 0.0.0.0` / `client --policy-host`).
+The profile turns off reflections, global illumination and translucency and caps
+the texture budget, but **keeps antialiasing (DLAA) on**: with it off the frames
+are heavily speckled, which is a distribution shift for a vision policy rather
+than a cosmetic change. It also pins `num_envs: 1` so batched adapters
+(pi0.5 sets `eval_batch: true`) cannot quietly spawn 10 parallel sims.
+
+4-bit still changes OpenVLA's outputs, so report headline numbers from a 24 GB+
+GPU, or split the policy server onto a bigger machine
+(`robodojo.sh server --bind-host 0.0.0.0` / `client --policy-host`).
 
 ## 6. Verify
 
@@ -200,7 +232,49 @@ make smoke-all              # demo, openvla, pi05, turbovla through Isaac Sim
 - GPU memory: `nvidia-smi --query-gpu=memory.used --format=csv -lms 1000` in a
   second shell.
 
-## 7. Offline checks without the simulator
+## 7. Fine-tuning TurboVLA on one task
+
+`templates/turbovla_finetune/` fine-tunes the 0.2B TurboVLA on a single RoboDojo
+task, so a small model can be compared as a specialist against the generalist
+checkpoints. The run on the reference box:
+
+```bash
+# 1. carve the task out of the combined download (~3 GB, not 120 GB)
+python templates/turbovla_finetune/make_task_dataset.py \
+  --source RoboDojo/.cache/robodojo_assets_repo/data/RoboDojo_lerobot_v30_video \
+  --out data/robodojo_tasks_joint --task stack_bowls
+# 2. normalization stats
+python templates/turbovla_finetune/compute_stats.py \
+  --data data/robodojo_tasks_joint/stack_bowls --out <run>/robodojo_stats.json
+# 3. train (init from the released RoboTwin ckpt, not GroundingDINO)
+TURBOVLA_INIT_FULL=1 TURBOVLA_INIT_CKPT=<released_turbovla.pth> \
+  bash templates/turbovla_finetune/train.sh
+# 4. point the adapter at the result and evaluate
+bash scripts/install_turbovla_deploy.sh --run <run> --step 2000
+bash scripts/run_eval.sh --policy turbovla --task stack_bowls --eval-num 20 --seed 0
+```
+
+Settings that mattered on a 16 GB / 32 GB box: batch 4 x grad-accum 4 (global
+16; batch 8 OOMs the GPU), ~1.25 steps/s, DeepSpeed ZeRO-2, EMA on. Init from
+the released RoboTwin checkpoint loaded 878/878 tensors.
+
+Apply `patches/turbovla_full_ckpt_init.patch` and
+`patches/turbovla_lerobot_video_index.patch` to the `turbovla` checkout first:
+
+- **full-checkpoint init** lets `TURBOVLA_INIT_FULL=1` start from a trained VLA
+  instead of GroundingDINO, remapping the released checkpoint's legacy key names
+  and refusing to proceed on under 80% tensor match (a silent mismatch here
+  looks like slow convergence, not an error).
+- **video index** -- the GR00T LeRobot loader built video paths from the *data*
+  file index, so any dataset whose videos are not numbered like its parquet
+  shards silently read the wrong episode's frames.
+
+Known rough edge: the trainer was killed by the kernel OOM killer at step 2000
+of 4000 while saving a checkpoint (32 GB RAM, checkpoint ~1.7 GB x2 plus the
+ZeRO state). The step-1000 and step-2000 checkpoints are intact and usable;
+budget RAM headroom or save less often for a longer run.
+
+## 8. Offline checks without the simulator
 
 Per-task demo data (for diagnostics and TurboVLA training) can be carved out of
 RoboDojo's combined LeRobot download instead of pulling all 120 GB:
@@ -223,7 +297,9 @@ TurboVLA recipe expect). `lerobot_v3.0_ee` is 16-D end-effector poses
 |---|---|---|
 | Isaac Sim segfault in `librtx.scenedb.plugin.so` right after "app ready" | Driver 595 | Driver 580 (§1) |
 | `EnvironmentNameNotFound: openvla-oft` | Old registry name | Env is `openvla_oft` (`policies/openvla.conf`) |
-| `setup_env_client.sh: python: command not found` | Client launcher calls bare `python` | Run evals with the `RoboDojo` env active |
+| `setup_env_client.sh: python: command not found` | Client launcher calls bare `python`, activates no env | Fixed in `scripts/run_eval.sh` (activates `$ROBODOJO_ENV`); otherwise run evals with the `RoboDojo` env active |
+| `conda: command not found` from the policy server, over ssh/nohup | Non-interactive shell has no conda on PATH | Fixed in `scripts/run_eval.sh` (sources conda) |
+| `Unable to bootstrap inner kit kernel: EOF when reading a line` | Isaac Sim's EULA prompt with no tty | `export OMNI_KIT_ACCEPT_EULA=YES` (`run_eval.sh` now does) |
 | `CUDA out of memory` (policy) or `VkResult: ERROR_OUT_OF_DEVICE_MEMORY` (sim) | Policy + sim > VRAM | `bash scripts/lowvram.sh apply` (§5) |
 | Sim hangs after an OOM, zenity "not responding" popups | Isaac Sim can't recover from Vulkan OOM | Kill the run (`pkill -f smoke_all_tasks.sh`, then the python PIDs from `nvidia-smi`), fix memory, rerun |
 | pi0.5 `No module named 'yaml'` | Base python lacks PyYAML | `conda install -n base pyyaml` |
@@ -231,3 +307,6 @@ TurboVLA recipe expect). `lerobot_v3.0_ee` is 16-D end-effector poses
 | TurboVLA `401` / gated repo | DINOv3 license not accepted or no token | §4 token steps |
 | TurboVLA `Weights only load failed` / `unexpected keys` | Old adapter | Pull latest; the adapter reads safetensors and remaps legacy keys |
 | `uv` download timeout (`fonttools`) | Slow mirror | Re-run; `setup_policy.sh` sets `UV_HTTP_TIMEOUT=120` |
+| Eval silently uses the released RoboTwin weights after you pointed it at your own | `install_adapter.sh --force` / `setup_policy.sh --robotwin-smoke` reinstall the stock `deploy.yml` | Re-run `bash scripts/install_turbovla_deploy.sh --run <run> --step N`; check `checkpoint_path` and `num_views: 3` |
+| TurboVLA ckpt loads but actions are nonsense | RoboDojo-trained ckpts carry a `model.` key prefix and pack actions `[arm_0, ee_0, arm_1, ee_1]` | Pull latest adapter (strips the prefix, `action_layout: packed`) |
+| Trainer killed at a checkpoint save, no traceback | Host RAM OOM killer | Free RAM or save less often; `dmesg -T | grep -i oom` confirms |

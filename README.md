@@ -28,6 +28,8 @@ adapters, tests, templates, and docs; the simulators and models live upstream.
 | `templates/turbovla_finetune/` | TurboVLA-on-RoboDojo training: env-var launcher (`train.sh`), registry overlay (`data_registry/`), recipe (`configs/robodojo.yaml`), stats (`compute_stats.py`), eval-ready `deploy.robodojo.yml`. GPU box only. |
 | `GPU_BOX_SETUP.md` | **Start here on a GPU box.** Fresh Linux → driver 580 → Isaac Sim → all four policies → `make smoke-all`, with measured VRAM, the verified-status table, and troubleshooting for every failure hit so far. |
 | `scripts/setup_policy.sh` | One idempotent command per policy (`openvla`, `pi05`, `turbovla`, `demo`): env, checkpoint, and the fixes the upstream installers need. |
+| `scripts/install_turbovla_deploy.sh` | Points the TurboVLA adapter at a checkpoint we fine-tuned (renders `templates/turbovla_finetune/deploy.robodojo.yml`), instead of the released RoboTwin weights. |
+| `scripts/diag_openvla_obs.py` | Offline check that a policy's actions actually respond to the cameras: scores predicted vs ground-truth actions on real episodes under observation variants (wrists swapped, cameras blacked out). No simulator needed. |
 | `scripts/lowvram.sh` | `apply`/`revert`/`status` for the 16 GB GPU profile (cheaper sim rendering and PhysX buffers, 4-bit OpenVLA, JAX/PyTorch memory env). |
 | `patches/` | Upstream fixes applied by the two scripts above; `make test` checks they still apply to the pinned checkouts. |
 | `OPENVLA_ROBODOJO_SETUP.md` | Full guide: what was pulled, why RoboDojo, Mac-verified steps, Linux GPU setup, every eval command, troubleshooting. |
@@ -61,6 +63,7 @@ make dry-run POLICY=turbovla TASK=stack_bowls   # resolve an eval command withou
 - **Evaluate a policy (GPU box):** `bash scripts/run_eval.sh --policy pi05 --task stack_bowls --mode smoke --fail-fast` (swap `pi05`→`turbovla`→`openvla` to compare models) — full command reference in `POLICIES_ROBODOJO.md`; harness details in `OPENVLA_ROBODOJO_SETUP.md` §5.
 - **New benchmark task:** copy `templates/robodojo_task/`, follow its README, validate with `make test` + dry-run, PR the task to `RoboDojo-Benchmark/RoboDojo`.
 - **New policy adapter:** copy `templates/xpolicylab_policy/my_policy/`, fill in the TODOs, PR to `XPolicyLab/XPolicyLab`.
+- **Fine-tune TurboVLA on one task (GPU box):** `GPU_BOX_SETUP.md` §7 — carve the task's data, compute stats, train from the released checkpoint, then `scripts/install_turbovla_deploy.sh` + `run_eval.sh`.
 - **Fine-tune OpenVLA (GPU box):** follow `templates/openvla_finetune/README.md`, then `cd openvla && bash ../templates/openvla_finetune/finetune_lora.sh`.
 
 ## Contributing
