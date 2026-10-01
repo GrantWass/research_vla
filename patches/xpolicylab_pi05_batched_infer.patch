@@ -1,0 +1,270 @@
+diff --git a/policy/Pi_05/deploy.py b/policy/Pi_05/deploy.py
+index 4154cfe..f401041 100644
+--- a/policy/Pi_05/deploy.py
++++ b/policy/Pi_05/deploy.py
+@@ -1,11 +1,38 @@
++import os
++
++# LOCAL (multi-robot serving): PI05_ATOMIC=1 routes observation+inference
++# through one server call (infer_obs / infer_obs_batch) instead of the
++# two-call update/get pair. The pair can interleave with another client's
++# calls on the shared server-side model state and answer from the wrong
++# observations; the single call holds one server lock for both halves.
++# Default 0 = upstream two-call behavior.
++_ATOMIC = os.environ.get("PI05_ATOMIC", "0") == "1"
++
++
++def _infer_single(model_client, obs):
++    if _ATOMIC:
++        return model_client.call(func_name="infer_obs", obs=obs)
++    model_client.call(func_name="update_obs", obs=obs)  # Update Observation
++    return model_client.call(func_name="get_action")  # Get Action according to observation chunk
++
++
++def _infer_batch(model_client, obs_list, env_idx_list):
++    if _ATOMIC:
++        return model_client.call(
++            func_name="infer_obs_batch",
++            obs={"obs_list": obs_list, "env_idx_list": env_idx_list},
++        )
++    model_client.call(func_name="update_obs_batch", obs=obs_list)
++    return model_client.call(func_name="get_action_batch", obs=env_idx_list)  # Get Action according to observation chunk
++
++
+ def eval_one_episode(TASK_ENV, model_client):
+ 
+     model_client.call(func_name="reset") # reset policy
+ 
+     while not TASK_ENV.is_episode_end(): # Check whether the episode ends
+         obs = TASK_ENV.get_obs() # Get Observation
+-        model_client.call(func_name="update_obs", obs=obs)  # Update Observation
+-        actions = model_client.call(func_name="get_action") # Get Action according to observation chunk
++        actions = _infer_single(model_client, obs)
+ 
+         for action_idx, action in enumerate(actions):
+             TASK_ENV.take_action(action)
+@@ -23,8 +50,7 @@ def eval_one_episode_batch(TASK_ENV, model_client):
+     while not TASK_ENV.is_episode_end(): # Check whether the episode ends
+         env_idx_list = TASK_ENV.get_running_env_idx_list() # Get Running Environment Index List
+         obs_list = TASK_ENV.get_obs_batch(env_idx_list) # Get Observation
+-        model_client.call(func_name="update_obs_batch", obs=obs_list)
+-        actions = model_client.call(func_name="get_action_batch", obs=env_idx_list)  # Get Action according to observation chunk
++        actions = _infer_batch(model_client, obs_list, env_idx_list)
+ 
+         chunk_size = len(actions[0]) # Get the chunk size
+         for action_idx in range(chunk_size): # Iterate over the action chunk
+diff --git a/policy/Pi_05/model.py b/policy/Pi_05/model.py
+index b7ffe70..df612d2 100644
+--- a/policy/Pi_05/model.py
++++ b/policy/Pi_05/model.py
+@@ -17,6 +17,7 @@ from openpi.training import config as _config
+ from XPolicyLab.model_template import ModelTemplate
+ from XPolicyLab.utils.checkpoint_resolver import candidate_checkpoint_roots
+ from XPolicyLab.utils.process_data import (
++    decode_obs_images,
+     get_robot_action_dim_info,
+     pack_robot_state,
+     unpack_robot_state,
+@@ -130,12 +131,27 @@ class Model(ModelTemplate):
+             raise AssertionError("update_obs or update_obs_batch first!")
+ 
+         env_idx_list = env_idx_list or self._latest_env_idx_list
+-        # actions = self.policy.infer(self.observation_window, **kwargs)["actions"]
++        # LOCAL (multi-robot serving): single batched forward behind
++        # PI05_BATCHED_INFER=1 (default 0 = status-quo sequential loop).
++        # Upstream openpi Policy.infer supports batched input; the loop below
++        # defeats it (N x 3B forwards). Falls back to sequential on any error
++        # (e.g. sampler not batch-safe for this checkpoint).
++        if os.environ.get("PI05_BATCHED_INFER", "0") == "1":
++            try:
++                return self._get_action_batched(env_idx_list, **kwargs)
++            except Exception as exc:
++                self._last_batch_info = {"batched": False, "fallback": True}
++                print(f"[Pi_05] batched infer failed, sequential fallback: {exc}")
++                _log_timing({"mode": "fallback", "error": str(exc)[:200]})
+         action_list = []
+ 
+         for batch_index, _ in enumerate(env_idx_list):
+             single_observation = slice_stacked_obs(self.observation_window, batch_index)
+-            actions = self.policy.infer(single_observation, **kwargs)["actions"]
++            start = _now_ms()
++            actions = self.policy.infer(
++                single_observation, **_noise_kwargs(self.policy, 1, kwargs)
++            )["actions"]
++            _log_timing({"mode": "sequential", "batch": 1, "infer_ms": _now_ms() - start})
+             if self.robot_action_dim_info is None:
+                 action_list.append(actions)
+             else:
+@@ -150,6 +166,110 @@ class Model(ModelTemplate):
+ 
+         return action_list
+ 
++    def _get_action_batched(self, env_idx_list, **kwargs):
++        # One forward per PI05_MAX_BATCH robots (0/unset = whole batch at once).
++        # Order = arrival (env_idx_list order); cross-client EDF scheduling is
++        # server-side work (see scripts/serve_bench/schedulers.py), this only
++        # removes the N-sequential-forwards bottleneck.
++        max_batch = int(os.environ.get("PI05_MAX_BATCH", "0") or 0)
++        self._warmup_batches(max_batch, **kwargs)
++        fits = getattr(self, "_max_fitting_batch", 0)
++        if fits and (max_batch <= 0 or fits < max_batch):
++            max_batch = fits
++        n = len(env_idx_list)
++        step = max_batch if max_batch > 0 else n
++        action_list: list = [None] * n
++        forwards = 0
++        for start in range(0, n, step):
++            idx = list(range(start, min(start + step, n)))
++            window = _slice_stacked_obs_batch(self.observation_window, idx)
++            begin = _now_ms()
++            actions = self.policy.infer(
++                window, **_noise_kwargs(self.policy, len(idx), kwargs)
++            )["actions"]
++            _log_timing(
++                {"mode": "batched", "batch": len(idx), "infer_ms": _now_ms() - begin}
++            )
++            for pos in range(len(idx)):
++                action = actions[pos]
++                if self.robot_action_dim_info is None:
++                    action_list[idx[pos]] = action
++                else:
++                    action_list[idx[pos]] = unpack_robot_state(
++                        action,
++                        self.action_type,
++                        self.robot_action_dim_info,
++                        source_type="obs",
++                    )
++            forwards += 1
++        self._last_batch_info = {
++            "batched": True,
++            "batch_size": n,
++            "forwards": forwards,
++        }
++        if not getattr(self, "_batched_logged", False):
++            print(f"[Pi_05] batched infer active: batch_size={n} forwards={forwards}")
++            self._batched_logged = True
++        return action_list
++
++    def _warmup_batches(self, max_batch, **kwargs):
++        # JAX compiles once per new batch shape (~9-13 s each on a 4070 Ti
++        # SUPER), which stalls every waiting robot mid-episode the first time
++        # a fleet happens to ask in a new group size. PI05_WARMUP_BATCHES=
++        # "1,2,3,4" compiles those sizes up front, on the first call, by
++        # replaying the first real observation. Unset = compile lazily.
++        if getattr(self, "_warmed", False):
++            return
++        self._warmed = True
++        sizes = [
++            int(v) for v in os.environ.get("PI05_WARMUP_BATCHES", "").split(",")
++            if v.strip().isdigit() and int(v) > 0
++        ]
++        # Doubles as a VRAM probe: the first size that fails (e.g. B=8 OOMs
++        # under XLA_PYTHON_CLIENT_MEM_FRACTION=0.45 on 16 GB) caps every
++        # later forward at the largest size that fit, instead of each
++        # oversized batch failing and silently falling back to sequential.
++        for size in sorted(set(sizes)):
++            if max_batch > 0 and size > max_batch:
++                continue
++            window = _slice_stacked_obs_batch(self.observation_window, [0] * size)
++            begin = _now_ms()
++            try:
++                self.policy.infer(window, **_noise_kwargs(self.policy, size, kwargs))
++            except Exception as exc:
++                _log_timing({"mode": "warmup_failed", "batch": size, "error": str(exc)[:200]})
++                self._max_fitting_batch = max(1, size - 1)
++                print(f"[Pi_05] batch {size} does not fit; capping at {self._max_fitting_batch}")
++                break
++            _log_timing({"mode": "warmup", "batch": size, "infer_ms": _now_ms() - begin})
++
++    def last_batch_info(self):
++        # Readable over WS via model_client.call(func_name="last_batch_info");
++        # the serve-bench harness records batch_size alongside infer_ms.
++        return dict(getattr(self, "_last_batch_info", {"batched": False}))
++
++    def infer_obs(self, obs):
++        # Atomic single-robot update+infer in ONE server call (one
++        # _model_lock hold). The two-call update_obs/get_action pair can
++        # interleave with another client's calls on the shared model state
++        # and answer from the wrong observations; this cannot.
++        self.update_obs(decode_obs_images(obs))
++        return self.get_action()
++
++    def infer_obs_batch(self, payload):
++        # Atomic multi-robot update+infer in ONE server call. payload:
++        # {"obs_list": [...], "env_idx_list": [...] or None}.
++        # Same race fix as infer_obs, plus one WS round trip per step
++        # instead of two.
++        if isinstance(payload, dict):
++            obs_list = payload.get("obs_list", [])
++            env_idx_list = payload.get("env_idx_list")
++        else:
++            obs_list = payload
++            env_idx_list = None
++        self.update_obs_batch([decode_obs_images(o) for o in obs_list])
++        return self.get_action_batch(env_idx_list=env_idx_list)
++
+     def reset(self):
+         self.observation_window = None
+         self._latest_env_idx_list = [0]
+@@ -210,6 +330,61 @@ def slice_stacked_obs(obs: dict[str, Any], batch_index: int) -> dict[str, Any]:
+     }
+ 
+ 
++def _slice_stacked_obs_batch(
++    obs: dict[str, Any], indices: list[int]
++) -> dict[str, Any]:
++    idx = list(indices)
++    return {
++        "state": obs["state"][idx],
++        "images": {
++            "cam_high": obs["images"]["cam_high"][idx],
++            "cam_left_wrist": obs["images"]["cam_left_wrist"][idx],
++            "cam_right_wrist": obs["images"]["cam_right_wrist"][idx],
++        },
++        "prompt": [obs["prompt"][i] for i in idx],
++    }
++
++
++def _noise_kwargs(policy, batch: int, kwargs: dict[str, Any]) -> dict[str, Any]:
++    # Serve-bench equivalence hook: PI05_NOISE_SEED=<int> gives every robot
++    # the SAME flow-matching start noise on every call, so a batched answer
++    # can be compared value-for-value against the one-robot answer for the
++    # same observation. Unset = upstream random noise.
++    seed = os.environ.get("PI05_NOISE_SEED", "")
++    if not seed or "noise" in kwargs:
++        return kwargs
++    import numpy as np
++
++    model = getattr(policy, "_model", None)
++    horizon = int(getattr(model, "action_horizon", 50))
++    dim = int(getattr(model, "action_dim", 32))
++    one = np.random.default_rng(int(seed)).standard_normal((horizon, dim))
++    noise = np.repeat(one[None].astype(np.float32), batch, axis=0)
++    return {**kwargs, "noise": noise[0] if batch == 1 else noise}
++
++
++def _now_ms() -> float:
++    import time
++
++    return time.perf_counter() * 1000.0
++
++
++def _log_timing(record: dict[str, Any]) -> None:
++    # Serve-bench hook: when PI05_TIMING_LOG is set, append one JSON line per
++    # model forward (mode/infer_ms). Unset = zero overhead, nothing written.
++    # The harness (scripts/serve_bench/report.py) summarizes the file.
++    path = os.environ.get("PI05_TIMING_LOG", "")
++    if not path:
++        return
++    try:
++        import json
++
++        with open(path, "a", encoding="utf-8") as f:
++            f.write(json.dumps(record) + "\n")
++    except Exception:
++        pass
++
++
+ def extract_image(observation, candidate_names):
+     vision = observation.get("vision", {})
+     for candidate_name in candidate_names:

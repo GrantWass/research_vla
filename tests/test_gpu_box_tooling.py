@@ -27,6 +27,8 @@ PATCH_TARGETS = {
     "robodojo_lowvram_sim.patch": ROBODOJO,
     "xpolicylab_openvla_oft_lowvram.patch": XPL,
     "xpolicylab_pi05_mem_fraction.patch": XPL,
+    "xpolicylab_pi05_batched_infer.patch": XPL,
+    "xpolicylab_server_batch_window.patch": XPL,
     "turbovla_full_ckpt_init.patch": TURBOVLA,
     "turbovla_lerobot_video_index.patch": TURBOVLA,
 }

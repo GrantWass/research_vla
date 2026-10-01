@@ -1,0 +1,118 @@
+diff --git a/client_server/ws/model_server.py b/client_server/ws/model_server.py
+index 4ce0d20..cec1c74 100644
+--- a/client_server/ws/model_server.py
++++ b/client_server/ws/model_server.py
+@@ -7,6 +7,7 @@ import asyncio
+ import importlib
+ import inspect
+ import logging
++import os
+ import time
+ from collections import OrderedDict
+ from collections.abc import Mapping
+@@ -43,6 +44,17 @@ _MAX_INFLIGHT_RESPONSES = 128
+ # client's connection handler) forever.
+ _SHUTDOWN_DRAIN_TIMEOUT_S = 30.0
+ 
++# LOCAL (multi-robot serving): cross-client batching. With XPL_SERVER_BATCH=1,
++# `infer_obs` CALLs from separate connections are coalesced into one
++# `model.infer_obs_batch` call instead of queueing one-by-one at _model_lock.
++# Requests that arrive while a forward is running join the next batch
++# (continuous batching); XPL_BATCH_WINDOW_MS additionally holds the first
++# request of an idle batch open that long for stragglers. XPL_BATCH_MAX caps
++# one forward (0 = no cap). Default off = upstream FIFO behavior.
++_SERVER_BATCH = os.environ.get("XPL_SERVER_BATCH", "0") == "1"
++_BATCH_WINDOW_S = float(os.environ.get("XPL_BATCH_WINDOW_MS", "0") or 0) / 1000.0
++_BATCH_MAX = int(os.environ.get("XPL_BATCH_MAX", "0") or 0)
++
+ 
+ def _ok_payload(result: Any = None) -> dict[str, Any]:
+     payload: dict[str, Any] = {"ok": True}
+@@ -93,6 +105,14 @@ class PolicyServer:
+     _inflight: dict[str, tuple[MessageType, asyncio.Task[Frame | None]]] = field(
+         default_factory=dict, init=False, repr=False
+     )
++    # LOCAL: pending (obs, future) pairs for cross-client batching, drained by
++    # one _drain_batches task at a time.
++    _batch_queue: list[tuple[Any, asyncio.Future[Any]]] = field(
++        default_factory=list, init=False, repr=False
++    )
++    _batch_task: asyncio.Task[None] | None = field(
++        default=None, init=False, repr=False
++    )
+ 
+     async def start(self) -> None:
+         if self._server is not None:
+@@ -399,6 +419,51 @@ class PolicyServer:
+         async with self._model_lock:
+             return await self._invoke_method(method, *args)
+ 
++    def _server_batching(self, func_name: str) -> bool:
++        return (
++            _SERVER_BATCH
++            and func_name == "infer_obs"
++            and callable(getattr(self.model, "infer_obs_batch", None))
++        )
++
++    async def _batched_infer_obs(self, obs: Any) -> tuple[Any, dict[str, Any]]:
++        future: asyncio.Future[Any] = asyncio.get_running_loop().create_future()
++        self._batch_queue.append((obs, future))
++        if self._batch_task is None or self._batch_task.done():
++            self._batch_task = asyncio.create_task(self._drain_batches())
++        return await future
++
++    async def _drain_batches(self) -> None:
++        loop = asyncio.get_running_loop()
++        while self._batch_queue:
++            deadline = loop.time() + _BATCH_WINDOW_S
++            while (
++                (_BATCH_MAX <= 0 or len(self._batch_queue) < _BATCH_MAX)
++                and loop.time() < deadline
++            ):
++                await asyncio.sleep(min(0.001, deadline - loop.time()))
++            take = len(self._batch_queue) if _BATCH_MAX <= 0 else _BATCH_MAX
++            batch = self._batch_queue[:take]
++            del self._batch_queue[:take]
++            payload = {"obs_list": [obs for obs, _ in batch], "env_idx_list": None}
++            start = time.perf_counter()
++            try:
++                results = await self._call_model_method(
++                    self.model.infer_obs_batch, payload
++                )
++            except Exception as exc:
++                for _, future in batch:
++                    if not future.done():
++                        future.set_exception(exc)
++                continue
++            info = {
++                "server_batch": len(batch),
++                "server_infer_ms": (time.perf_counter() - start) * 1000.0,
++            }
++            for (_, future), result in zip(batch, results):
++                if not future.done():
++                    future.set_result((result, info))
++
+     async def _dispatch_frame(self, frame: Frame) -> Frame | None:
+         if frame.message_type == MessageType.HELLO:
+             return self._reply(
+@@ -490,8 +555,11 @@ class PolicyServer:
+                 raise WsError(ErrorCode.INVALID_FRAME, str(exc)) from exc
+ 
+         start = time.perf_counter()
++        batch_info: dict[str, Any] = {}
+         try:
+-            if obs is None:
++            if obs is not None and self._server_batching(func_name):
++                result, batch_info = await self._batched_infer_obs(obs)
++            elif obs is None:
+                 result = await self._call_model_method(method)
+             else:
+                 result = await self._call_model_method(method, obs)
+@@ -500,6 +568,7 @@ class PolicyServer:
+ 
+         payload = _ok_payload(result)
+         payload["latency_ms"] = (time.perf_counter() - start) * 1000.0
++        payload.update(batch_info)
+         return self._reply(frame, MessageType.CALL_RESULT, payload)
+ 
+     async def _handle_infer(self, frame: Frame) -> Frame:

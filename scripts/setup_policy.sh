@@ -103,6 +103,13 @@ setup_pi05() {
   if git -C "${XPL}" apply --check "${patch}" 2>/dev/null; then
     git -C "${XPL}" apply "${patch}" && log "applied $(basename "${patch}")"
   fi
+  local batch_patch
+  for batch_patch in "${ROOT}/patches/xpolicylab_pi05_batched_infer.patch" \
+                     "${ROOT}/patches/xpolicylab_server_batch_window.patch"; do
+    if git -C "${XPL}" apply --check "${batch_patch}" 2>/dev/null; then
+      git -C "${XPL}" apply "${batch_patch}" && log "applied $(basename "${batch_patch}")"
+    fi
+  done
   (cd "${dir}" && UV_HTTP_TIMEOUT=120 bash install.sh)
   local run="ckpt/RoboDojo/Pi_05/RoboDojo-sim-arx_x5-joint-0/59999"
   if [[ ! -d "${dir}/checkpoints/RoboDojo-sim-arx_x5-joint-0/59999/params/d" ]]; then
