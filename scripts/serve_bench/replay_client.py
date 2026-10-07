@@ -21,8 +21,8 @@ Scenarios:
 Personas differ the way real robots do: different joint states,
 different instructions, different pixels.
 
-Every served call is recorded as a metrics.RequestRecord JSONL row, so
-`report.py` summarizes live traffic exactly like simulated traffic.
+Every served call is recorded as a metrics.RequestRecord JSONL row (the same
+format as simulated traffic, summarized by metrics.summarize).
 """
 from __future__ import annotations
 

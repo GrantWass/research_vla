@@ -36,6 +36,9 @@ venv/
 
 # Local small-GPU profile (scripts/lowvram.sh)
 .lowvram.env
+
+# Robot run outputs (real_robot runner / verify)
 real_robot_logs/
+verify/
 # Orbbec SDK writes Log/OrbbecSDK.log.txt into the cwd
 Log/
