@@ -1,0 +1,16 @@
+{"mode": "batched", "batch": 6, "infer_ms": 12640.699907999486}
+{"mode": "batched", "batch": 6, "infer_ms": 513.845445998013}
+{"mode": "batched", "batch": 6, "infer_ms": 509.08150700107217}
+{"mode": "batched", "batch": 6, "infer_ms": 513.4715920053422}
+{"mode": "batched", "batch": 6, "infer_ms": 515.4703990034759}
+{"mode": "batched", "batch": 6, "infer_ms": 512.3300350010395}
+{"mode": "batched", "batch": 5, "infer_ms": 11835.937848001719}
+{"mode": "batched", "batch": 4, "infer_ms": 11266.737325001508}
+{"mode": "batched", "batch": 4, "infer_ms": 365.7484479993582}
+{"mode": "batched", "batch": 4, "infer_ms": 366.51282300055027}
+{"mode": "batched", "batch": 4, "infer_ms": 364.48757500201464}
+{"mode": "batched", "batch": 3, "infer_ms": 10631.924985002726}
+{"mode": "batched", "batch": 3, "infer_ms": 291.6133959963918}
+{"mode": "batched", "batch": 3, "infer_ms": 289.98198200017214}
+{"mode": "batched", "batch": 3, "infer_ms": 291.926994998008}
+{"mode": "batched", "batch": 3, "infer_ms": 291.96429800242186}

@@ -59,8 +59,9 @@ The code is in `patches/xpolicylab_pi05_batched_infer.patch` and
 | `simulate.py`, `schedulers.py` | fleet simulator replaying measured timings (sequential / round-robin / EDF) |
 | `metrics.py`, `stats.py` | request records, Wilson/Fisher/McNemar |
 
-Raw data from the runs above lives in `scripts/serve_bench/data/`, which is
-git-ignored. `runs_2026_09_30.json` is the manifest for the first battery.
+Raw data from the runs above is committed in `scripts/serve_bench/data/`
+(`runs_2026_09_30.json` is the manifest for the first battery), so
+`python3 scripts/serve_bench/compare_runs.py --pairwise` regenerates the tables.
 
 ## Open directions
 

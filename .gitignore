@@ -38,3 +38,6 @@ real_robot_logs/
 verify/
 # Orbbec SDK writes Log/OrbbecSDK.log.txt into the cwd
 Log/
+
+# Measured serving runs behind docs/serving.md (small JSONL; kept for reproducibility)
+!scripts/serve_bench/data/
