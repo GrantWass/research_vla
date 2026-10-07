@@ -38,7 +38,7 @@ checkpoint's conventions.
 | `runner.py` | the control loop. **Dry-run by default** (policy runs, nothing is sent); `--live` moves; always `hold()`s on exit |
 | `lerobot_policy.py` | wraps a LeRobot checkpoint in the runner's policy interface |
 | `teleop.py` | far arm leads by hand, close arm follows through `SafetyFilter` |
-| `record.py` | read-only demo recorder (npz + mp4); to be replaced by recording inside teleop |
+| `recorder.py` | records teleop demos into a LeRobot dataset (`teleop --record`) |
 | `verify.py` | GPU and robot I/O checks: joints in limits, camera fps, snapshot PNGs, `--wiggle` (joint 6 +0.05 rad and back) |
 
 ## Commands
@@ -67,6 +67,24 @@ Each run logs to `real_robot_logs/<time>-{dry,live}/`: `summary.json`
 (status, inference latency, safety clips), `trajectory.npz` (`q_real`,
 `target_real`, `cmd_real` per step) and `first_frame.npz`. After a dry run,
 check that `safety.max_requested_delta` is small and that there was no abort.
+
+### Recording demos
+
+Teleop with `--record` writes a new LeRobot dataset (v3, 30 fps). Run it with
+the LeRobot venv:
+
+```bash
+~/lerobot_robot_piper/.venv/bin/python -m real_robot.teleop --record demos/pick_cube_01 \
+  --task "put the cube in the cup" --episodes 10 --episode-seconds 30 --reset-seconds 10
+```
+
+Each frame holds `observation.state` (follower joints in rad and gripper in m,
+7-D), `observation.end_pose` (6-D), `action` (the leader's target clipped to
+the limits, 7-D) and one video per config camera. The session alternates
+"reset the scene" pauses with recording windows, and the log says which one
+you're in. Each episode is saved in the background during the next pause.
+Ctrl-C discards the episode in progress and keeps the saved ones. Use a new
+directory per session; LeRobot's dataset tools can merge sessions.
 
 ## Hardware behavior to know
 
@@ -113,6 +131,6 @@ fine-tune pi0.5 base, LAP-3B or GigaBrain-0.7.
 
 1. Gentle park routine (above), tested once with someone watching.
 2. Banana test on the close arm (needs a banana and a basket).
-3. Recording during teleop: the `teleop()` `on_step(state, cmd, leader)` hook,
-   saving the follower's joints, gripper, end pose and both cameras at 30 fps
-   in LeRobot format, with an instruction per episode. Then collect demos and fine-tune.
+3. Record demos of a few tasks (`teleop --record`, above), then fine-tune
+   (pi0.5 base, LAP-3B or GigaBrain-0.7). Recording has been tested against
+   LeRobot with a mock robot, not yet on the arms.

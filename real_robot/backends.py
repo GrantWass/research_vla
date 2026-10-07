@@ -55,6 +55,9 @@ class MockBackend(RobotBackend):
         return {c: self.rng.integers(0, 256, (*IMAGE_HW, 3), dtype=np.uint8)
                 for c in self.cfg.camera_names}
 
+    def get_end_pose(self) -> np.ndarray:
+        return np.zeros(6 * len(self.cfg.arms))
+
     def command_joints(self, q: np.ndarray) -> None:
         q = np.asarray(q, dtype=np.float64)
         self.commands.append(q.copy())

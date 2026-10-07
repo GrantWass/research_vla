@@ -16,7 +16,6 @@ except ImportError:  # pragma: no cover
 if np is not None:
     from real_robot.backends import MockBackend
     from real_robot.piper import PiperBackend
-    from real_robot.record import record_episode
     from real_robot.config import RobotConfig, load_config
     from real_robot.mapping import real_to_sim, sim_to_real
     from real_robot.runner import build_obs, chunk_to_array, preflight, run
@@ -320,24 +319,6 @@ class TestPiper(unittest.TestCase):
         self.assertEqual(s["status"], "ok")
         self.assertEqual(made["can_piper1"].joints, [0] * 6)  # nothing sent
         self.assertEqual(set(b.cameras.last), {"cam_high", "cam_wrist"})
-
-    def test_record_episode(self):
-        cfg = RobotConfig(control_hz=10)
-        robot = MockBackend(cfg)
-        robot.q = np.arange(7, dtype=float)
-        with tempfile.TemporaryDirectory() as d:
-            ep = record_episode(robot, cfg, d, "stack", 0.5, sleep=lambda s: None)
-            ep2 = record_episode(robot, cfg, d, "stack", 0.2, sleep=lambda s: None)
-            self.assertTrue(ep.endswith("episode_0000"))
-            self.assertTrue(ep2.endswith("episode_0001"))
-            data = np.load(os.path.join(ep, "data.npz"))
-            self.assertEqual(data["state"].shape, (5, 7))
-            np.testing.assert_array_equal(data["action"][:-1], data["state"][1:])
-            with open(os.path.join(ep, "meta.json")) as f:
-                meta = json.load(f)
-            self.assertEqual(meta["frames"], 5)
-            files = os.listdir(ep)
-            self.assertTrue(any(f.startswith("cam_high") for f in files))
 
 
 class FakeOrbbecSDK:

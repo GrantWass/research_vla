@@ -86,6 +86,15 @@ class TestTeleop(unittest.TestCase):
         steps = np.diff(np.asarray(self.robot.commands)[:, 0])
         self.assertLessEqual(np.max(np.abs(steps)), 0.05 + 1e-9)  # default max_step_delta
 
+    def test_on_step_true_ends_session(self):
+        self.robot.q[:] = np.zeros(7)
+        calls = []
+        s = teleop(self.leader([1, 0, 0, 0, 0, 0]), self.robot, self.cfg, 10, self.cfg.control_hz,
+                   on_step=lambda *a: calls.append(a) or len(calls) >= 3,
+                   sleep=lambda s: None, log=lambda *a: None)
+        self.assertEqual((s["status"], s["steps"], len(calls)), ("ok", 3, 3))
+        self.assertGreater(self.robot.held, 0)
+
     def test_stops_on_leader_glitch(self):
         self.robot.q[:] = np.zeros(7)
         lead = self.leader([1, 0, 0, 0, 0, 0])
