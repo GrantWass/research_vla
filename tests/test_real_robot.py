@@ -18,7 +18,7 @@ if np is not None:
     from real_robot.piper import PiperBackend
     from real_robot.config import RobotConfig, load_config
     from real_robot.mapping import real_to_sim, sim_to_real
-    from real_robot.runner import build_obs, chunk_to_array, preflight, run
+    from real_robot.runner import build_obs, chunk_to_array, main, preflight, run
     from real_robot.safety import SafetyAbort, SafetyFilter
 
 REPO = os.path.join(os.path.dirname(__file__), "..")
@@ -176,6 +176,41 @@ class TestRealRobot(unittest.TestCase):
         # async: one up-front inference + 60 steps (0.65 s); sync would add a
         # pause per chunk (0.6 + 4 * 0.05 = 0.8 s)
         self.assertLess(wall, 0.6 + infer_s + 0.07)
+
+    def test_async_blend_crossfades_between_chunks(self):
+        cfg = RobotConfig(verified=True, control_hz=200.0)
+
+        def run_with(blend):
+            calls = []
+
+            def alternating(st, n):  # each chunk a constant, alternating 0 / 0.02 rad
+                calls.append(1)
+                return [np.full_like(st, 0.02 * (len(calls) % 2))] * n
+
+            robot = MockBackend(cfg, lag=1.0)
+            s = run(robot, FakePolicy(alternating, chunk_len=20), cfg, instruction="x",
+                    live=True, speed=1.0, max_steps=40, execute_steps=8,
+                    async_infer=True, blend_steps=blend)
+            self.assertEqual(s["status"], "ok")
+            cmds = np.asarray(robot.commands)[:, 0]
+            return np.abs(np.diff(cmds)).max()
+
+        self.assertAlmostEqual(run_with(0), 0.02, places=6)  # hard switch: one 0.02 jump
+        self.assertLessEqual(run_with(4), 0.02 / 5 + 1e-9)   # spread over 5 steps
+
+    def test_speed_limits(self):
+        import contextlib
+        import io
+
+        for bad in (["--speed", "2.5"], ["--speed", "0"], ["--speed-percent", "150"],
+                    ["--blend-steps", "4"]):
+            with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+                main(bad + ["--backend", "mock"])
+        robot = MockBackend(self.cfg, lag=1.0)
+        s = run(robot, FakePolicy(drift, chunk_len=5), self.cfg, instruction="x",
+                live=True, speed=2.0, max_steps=6)
+        self.assertEqual(s["status"], "ok")
+        self.assertEqual(len(robot.commands), 6)
 
     def test_async_inference_error_holds(self):
         class FailsSecond(FakePolicy):

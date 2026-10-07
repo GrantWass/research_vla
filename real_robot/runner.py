@@ -24,6 +24,8 @@ from .config import RobotConfig, load_config
 from .mapping import real_to_sim, sim_to_real
 from .safety import SafetyAbort, SafetyFilter
 
+MAX_SPEED = 2.0  # --speed cap: at most twice the policy's trained control rate
+
 _ARM_KEYS = (("left_arm_joint_state", "left_ee_joint_state"),
              ("right_arm_joint_state", "right_ee_joint_state"))
 
@@ -98,11 +100,12 @@ def preflight(robot: RobotBackend, cfg: RobotConfig, safety: SafetyFilter) -> li
 def run(robot: RobotBackend, policy, cfg: RobotConfig, *, instruction: str,
         live: bool, speed: float = 1.0, max_steps: int = 500,
         execute_steps: int | None = None, log_dir: str | None = None,
-        async_infer: bool = False) -> dict:
+        async_infer: bool = False, blend_steps: int = 0) -> dict:
     """One episode. Always leaves the robot holding position.
 
     async_infer: compute the next chunk in a background thread while the
     current one executes (see _async_loop), instead of pausing for each.
+    blend_steps (async only): crossfade between consecutive chunks.
     """
     safety = SafetyFilter(cfg)
     period = 1.0 / (cfg.control_hz * speed)
@@ -157,7 +160,7 @@ def run(robot: RobotBackend, policy, cfg: RobotConfig, *, instruction: str,
     try:
         if async_infer:
             _async_loop(observe, infer, act, lambda: step, max_steps, execute_steps,
-                        period, extra, bump_chunk=lambda: _bump())
+                        period, extra, bump_chunk=lambda: _bump(), blend_steps=blend_steps)
         else:
             while step < max_steps:
                 chunk = infer(observe())
@@ -201,7 +204,7 @@ def run(robot: RobotBackend, policy, cfg: RobotConfig, *, instruction: str,
 
 
 def _async_loop(observe, infer, act, get_step, max_steps, execute_steps, period,
-                extra, bump_chunk) -> None:
+                extra, bump_chunk, blend_steps: int = 0) -> None:
     """Execute chunks at `period` while the next is inferred in a thread.
 
     Inference for the next chunk starts when the steps left before
@@ -211,6 +214,13 @@ def _async_loop(observe, infer, act, get_step, max_steps, execute_steps, period,
     skipped. If inference is late the current chunk runs on past
     execute_steps; if it runs out, the arm holds until the new chunk arrives.
     Runs in real time in dry-run too.
+
+    blend_steps: on a switch, carry the gap between the last action sent and
+    the new chunk, and shrink it linearly to 0 over this many steps, instead
+    of jumping. Consecutive pi0.5 chunks disagree by ~5 deg at a switch
+    (12 deg max, live runs 2026-10-07) against ~0.5 deg per step within a
+    chunk. Relative to the last action sent, so it stays continuous when the
+    next switch comes before the blend ends (frequent replanning).
     """
     import concurrent.futures as cf
 
@@ -221,7 +231,7 @@ def _async_loop(observe, infer, act, get_step, max_steps, execute_steps, period,
         chunk, chunk_step = infer(observe()), get_step()
         lat_steps = (time.perf_counter() - t0) / period
         n_exec = len(chunk) if execute_steps is None else min(execute_steps, len(chunk))
-        pending = None
+        pending = last = offset = switch_step = None
         extra.update(skipped_actions=0, starved_steps=0)
         next_tick = time.perf_counter()
         while get_step() < max_steps:
@@ -233,6 +243,7 @@ def _async_loop(observe, infer, act, get_step, max_steps, execute_steps, period,
                 if not pending.done():
                     extra["starved_steps"] += 1  # chunk ran out: hold and wait
                 new = pending.result()  # re-raises inference errors
+                switch_step = get_step()
                 lat_steps = 0.7 * lat_steps + 0.3 * (time.perf_counter() - t_sub) / period
                 chunk, chunk_step, pending = new, obs_step, None
                 n_exec = len(chunk) if execute_steps is None else min(execute_steps, len(chunk))
@@ -241,7 +252,15 @@ def _async_loop(observe, infer, act, get_step, max_steps, execute_steps, period,
                 chunk_step = get_step() - i
                 extra["skipped_actions"] += i
                 next_tick = time.perf_counter()
-            act(chunk[i])
+            a = chunk[i]
+            if blend_steps > 0 and last is not None and switch_step is not None:
+                k = get_step() - switch_step
+                if k == 0:
+                    offset = last - a
+                if k < blend_steps:
+                    a = a + offset * (1 - (k + 1) / (blend_steps + 1))
+            act(a)
+            last = a
             next_tick += period
             time.sleep(max(0.0, next_tick - time.perf_counter()))
     finally:
@@ -266,12 +285,21 @@ def main(argv=None) -> int:
     ap.add_argument("--instruction", default="stack the bowls")
     ap.add_argument("--live", action="store_true", help="actually move the robot")
     ap.add_argument("--speed", type=float, default=0.25,
-                    help="fraction of sim control rate (live only)")
+                    help="multiple of the policy's control rate (cfg.control_hz). Up to "
+                         "%.0f; above 1 the arm moves faster than the demos it learned "
+                         "from, and the per-step safety limits allow proportionally "
+                         "faster joints" % MAX_SPEED)
+    ap.add_argument("--speed-percent", type=int, default=None,
+                    help="override the arm firmware's speed cap (config: "
+                         "arm_speed_percent, 30); at 30 the arm lags fast policies")
     ap.add_argument("--max-steps", type=int, default=500)
     ap.add_argument("--execute-steps", type=int, default=None,
                     help="steps of each chunk to run before re-planning (default: all)")
     ap.add_argument("--async", dest="async_infer", action="store_true",
                     help="infer the next chunk while the current one executes")
+    ap.add_argument("--blend-steps", type=int, default=0,
+                    help="--async: crossfade from the old chunk to the new one over "
+                         "this many steps instead of jumping (try 8)")
     ap.add_argument("--compile", default=None, metavar="MODE",
                     help="--lerobot: torch.compile mode, e.g. max-autotune (default: eager)")
     ap.add_argument("--policy-process", action="store_true",
@@ -288,9 +316,15 @@ def main(argv=None) -> int:
     ap.add_argument("--yes", action="store_true", help="skip the live confirmation prompt")
     args = ap.parse_args(argv)
 
-    if not 0 < args.speed <= 1.0:
-        ap.error("--speed must be in (0, 1]")
+    if not 0 < args.speed <= MAX_SPEED:
+        ap.error(f"--speed must be in (0, {MAX_SPEED:g}]")
+    if args.blend_steps < 0 or (args.blend_steps and not args.async_infer):
+        ap.error("--blend-steps needs --async and must be >= 0")
+    if args.speed_percent is not None and not 1 <= args.speed_percent <= 100:
+        ap.error("--speed-percent must be in [1, 100]")
     cfg = load_config(args.config)
+    if args.speed_percent is not None:
+        cfg.arm_speed_percent = args.speed_percent
     robot = make_backend(args.backend, cfg)
     robot.connect()
     try:
@@ -332,7 +366,7 @@ def main(argv=None) -> int:
             summary = run(robot, policy, cfg, instruction=args.instruction,
                           live=args.live, speed=args.speed, max_steps=args.max_steps,
                           execute_steps=args.execute_steps, log_dir=log_dir,
-                          async_infer=args.async_infer)
+                          async_infer=args.async_infer, blend_steps=args.blend_steps)
         finally:
             policy.close()
         print(json.dumps(summary, indent=2))
