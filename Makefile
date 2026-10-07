@@ -19,6 +19,7 @@ LEROBOT_PY ?= $(HOME)/lerobot_robot_piper/.venv/bin/python
 CKPT_HF ?= richardshkim/pi05_piper_banana_v2_full
 INSTR ?= Put banana into basket.
 STEPS ?= 300
+SPEED ?= 0.5
 
 help:
 	@echo "make test                Unit tests (CPU only; no GPU, Isaac or robot)"
@@ -97,12 +98,13 @@ cans:
 leader-restore:
 	$(PY) -m real_robot.teleop --leader can_piper2 --restore-leader
 
-# Fast pi0.5 on the close arm: child process, CUDA graphs, async replanning
-# every inference (~6/s) with 4-step blending; see docs/robot.md.
+# pi0.5 on the close arm: child process, CUDA graphs, async replanning after
+# every inference (~6/s) with fixed sampling noise and 4-step blending, at half
+# the trained rate; see docs/robot.md.
 POLICY_FLAGS = --backend piper --config real_robot/configs/piper_1_banana.json \
 	--lerobot $(CKPT_HF) --end-pose-state --base-offset-deg 90 --instruction "$(INSTR)" \
-	--max-steps $(STEPS) --execute-steps 4 --speed 1.0 \
-	--policy-process --compile reduce-overhead --async --blend-steps 4
+	--max-steps $(STEPS) --execute-steps 4 --speed $(SPEED) \
+	--policy-process --compile reduce-overhead --async --blend-steps 4 --noise-seed 0
 policy:
 	$(LEROBOT_PY) -m real_robot.runner $(POLICY_FLAGS)
 

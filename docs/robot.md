@@ -77,8 +77,8 @@ targets use the LeRobot venv (`LEROBOT_PY`).
 ~/lerobot_robot_piper/.venv/bin/python -m real_robot.runner --backend piper \
   --config real_robot/configs/piper_1_banana.json --lerobot richardshkim/pi05_piper_banana_v2_full \
   --end-pose-state --base-offset-deg 90 --instruction "Put banana into basket." \
-  --max-steps 300 --execute-steps 4 --speed 1.0 \
-  --policy-process --compile reduce-overhead --async --blend-steps 4
+  --max-steps 300 --execute-steps 4 --speed 0.5 \
+  --policy-process --compile reduce-overhead --async --blend-steps 4 --noise-seed 0
 
 # or a websocket policy server
 .venv/bin/python -m real_robot.runner --backend piper --config real_robot/configs/piper_1.json \
@@ -116,6 +116,15 @@ Flags for the LeRobot policy command:
   `--blend-steps N` carries that gap from the last action sent and shrinks
   it over N steps. A 300-step dry run: switches 0.6 deg median (1.5 max),
   30 Hz held (35 ms worst step), no starvation.
+- `--noise-seed 0`: the same sampling noise for every plan, so consecutive
+  plans differ only where the observation does. With fresh noise, replanning
+  ~6x/s made the arm wobble in small circles (live run); with a fixed seed the
+  commanded path's wobble fell from 0.66 to 0.12 deg RMS (dry runs, 300 steps).
+  Replanning less often (every 15-25 steps) was worse (0.55-0.61 deg): each
+  chunk carries its own wiggle. `--ensemble-steps N` (average the plans of the
+  last N steps) is available but didn't help on top of the fixed seed.
+- `--speed 0.5`: half the trained rate. At 1.0, the per-step safety limits
+  clipped most steps on J2/J3 and the motion looked jolty.
 - `--speed` (up to 2) plays actions faster than the demos were recorded;
   `--speed-percent` raises the firmware speed cap (30) to keep up.
 - `--denoise-steps 5` halves the action-expert work (237 vs 358 ms eager) and

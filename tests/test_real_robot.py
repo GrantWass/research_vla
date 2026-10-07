@@ -200,12 +200,33 @@ class TestRealRobot(unittest.TestCase):
         self.assertAlmostEqual(run_with(0), 0.02, places=6)  # hard switch: one 0.02 jump
         self.assertLessEqual(run_with(4), 0.02 / 5 + 1e-9)   # spread over 5 steps
 
+    def test_async_ensemble_averages_overlapping_chunks(self):
+        cfg = RobotConfig(verified=True, control_hz=200.0)
+
+        def wobble(ensemble):
+            calls = []
+
+            def alternating(st, n):  # plans that disagree: 0 / 0.02 rad, alternating
+                calls.append(1)
+                return [np.full_like(st, 0.02 * (len(calls) % 2))] * n
+
+            robot = MockBackend(cfg, lag=1.0)
+            s = run(robot, FakePolicy(alternating, chunk_len=40), cfg, instruction="x",
+                    live=True, speed=1.0, max_steps=80, execute_steps=6,
+                    async_infer=True, ensemble_steps=ensemble)
+            self.assertEqual(s["status"], "ok")
+            cmds = np.asarray(robot.commands)[20:, 0]  # after the first few plans
+            return cmds.max() - cmds.min()
+
+        self.assertAlmostEqual(wobble(0), 0.02, places=6)  # follows each plan fully
+        self.assertLess(wobble(24), 0.02 / 2)               # averaged plans swing far less
+
     def test_speed_limits(self):
         import contextlib
         import io
 
         for bad in (["--speed", "2.5"], ["--speed", "0"], ["--speed-percent", "150"],
-                    ["--blend-steps", "4"]):
+                    ["--blend-steps", "4"], ["--ensemble-steps", "20"]):
             with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
                 main(bad + ["--backend", "mock"])
         robot = MockBackend(self.cfg, lag=1.0)

@@ -38,12 +38,16 @@ class LerobotPolicy:
     compile_mode: None runs eager; otherwise a torch.compile mode
       ("default", "max-autotune", ...) for the action sampler.
     num_steps: flow-matching denoising steps (None: the checkpoint's, 10).
+    noise_seed: draw the same flow-matching noise for every chunk, so
+      consecutive chunks differ only where the observation does. With fresh
+      noise, replanning ~6x/s made the arm wobble (each joint reversed ~3x/s,
+      live 2026-10-07). None: fresh noise per chunk.
     """
 
     def __init__(self, path: str, camera_map: dict[str, str], extra_state=None,
                  device: str = "cuda", robot_type: str = "piper_follower",
                  base_offset: float = 0.0, compile_mode: str | None = None,
-                 num_steps: int | None = None):
+                 num_steps: int | None = None, noise_seed: int | None = None):
         import torch
         from lerobot.configs.policies import PreTrainedConfig
         from lerobot.policies.factory import get_policy_class, make_pre_post_processors
@@ -65,6 +69,7 @@ class LerobotPolicy:
         self.extra_state = extra_state
         self.robot_type = robot_type
         self.base_offset = float(base_offset)
+        self.noise_seed = noise_seed
         self.state_dim = cfg.input_features["observation.state"].shape[0]
         missing = {f"observation.images.{v}" for v in camera_map.values()} - set(cfg.input_features)
         if missing:
@@ -102,6 +107,8 @@ class LerobotPolicy:
             self.obs = kw["obs"]
             return None
         if func_name == "get_action":
+            if self.noise_seed is not None:
+                self.torch.manual_seed(self.noise_seed)
             with self.torch.inference_mode():
                 chunk = self.policy.predict_action_chunk(self._batch(self.obs))
                 chunk = self.post(chunk)

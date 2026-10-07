@@ -100,12 +100,12 @@ def preflight(robot: RobotBackend, cfg: RobotConfig, safety: SafetyFilter) -> li
 def run(robot: RobotBackend, policy, cfg: RobotConfig, *, instruction: str,
         live: bool, speed: float = 1.0, max_steps: int = 500,
         execute_steps: int | None = None, log_dir: str | None = None,
-        async_infer: bool = False, blend_steps: int = 0) -> dict:
+        async_infer: bool = False, blend_steps: int = 0, ensemble_steps: int = 0) -> dict:
     """One episode. Always leaves the robot holding position.
 
     async_infer: compute the next chunk in a background thread while the
     current one executes (see _async_loop), instead of pausing for each.
-    blend_steps (async only): crossfade between consecutive chunks.
+    blend_steps, ensemble_steps (async only): smooth between chunks.
     """
     safety = SafetyFilter(cfg)
     period = 1.0 / (cfg.control_hz * speed)
@@ -160,7 +160,8 @@ def run(robot: RobotBackend, policy, cfg: RobotConfig, *, instruction: str,
     try:
         if async_infer:
             _async_loop(observe, infer, act, lambda: step, max_steps, execute_steps,
-                        period, extra, bump_chunk=lambda: _bump(), blend_steps=blend_steps)
+                        period, extra, bump_chunk=lambda: _bump(), blend_steps=blend_steps,
+                        ensemble_steps=ensemble_steps)
         else:
             while step < max_steps:
                 chunk = infer(observe())
@@ -204,7 +205,7 @@ def run(robot: RobotBackend, policy, cfg: RobotConfig, *, instruction: str,
 
 
 def _async_loop(observe, infer, act, get_step, max_steps, execute_steps, period,
-                extra, bump_chunk, blend_steps: int = 0) -> None:
+                extra, bump_chunk, blend_steps: int = 0, ensemble_steps: int = 0) -> None:
     """Execute chunks at `period` while the next is inferred in a thread.
 
     Inference for the next chunk starts when the steps left before
@@ -221,6 +222,11 @@ def _async_loop(observe, infer, act, get_step, max_steps, execute_steps, period,
     (12 deg max, live runs 2026-10-07) against ~0.5 deg per step within a
     chunk. Relative to the last action sent, so it stays continuous when the
     next switch comes before the blend ends (frequent replanning).
+
+    ensemble_steps: each step, average what every chunk observed within the
+    last ensemble_steps steps says for that step (temporal ensembling, as in
+    ACT), instead of following only the newest. One chunk's quirk then moves
+    the arm by a fraction of it.
     """
     import concurrent.futures as cf
 
@@ -232,6 +238,7 @@ def _async_loop(observe, infer, act, get_step, max_steps, execute_steps, period,
         lat_steps = (time.perf_counter() - t0) / period
         n_exec = len(chunk) if execute_steps is None else min(execute_steps, len(chunk))
         pending = last = offset = switch_step = None
+        history = [(chunk, chunk_step)]  # chunks for ensembling, oldest first
         extra.update(skipped_actions=0, starved_steps=0)
         next_tick = time.perf_counter()
         while get_step() < max_steps:
@@ -252,7 +259,13 @@ def _async_loop(observe, infer, act, get_step, max_steps, execute_steps, period,
                 chunk_step = get_step() - i
                 extra["skipped_actions"] += i
                 next_tick = time.perf_counter()
+                history.append((chunk, chunk_step))
             a = chunk[i]
+            if ensemble_steps > 0:
+                s_now = get_step()
+                history = [(c, cs) for c, cs in history
+                           if c is chunk or (s_now - cs < ensemble_steps and s_now - cs < len(c))]
+                a = np.mean([c[s_now - cs] for c, cs in history], axis=0)
             if blend_steps > 0 and last is not None and switch_step is not None:
                 k = get_step() - switch_step
                 if k == 0:
@@ -297,6 +310,9 @@ def main(argv=None) -> int:
                     help="steps of each chunk to run before re-planning (default: all)")
     ap.add_argument("--async", dest="async_infer", action="store_true",
                     help="infer the next chunk while the current one executes")
+    ap.add_argument("--ensemble-steps", type=int, default=0,
+                    help="--async: average every chunk observed in the last N steps "
+                         "for each step (temporal ensembling; try 20)")
     ap.add_argument("--blend-steps", type=int, default=0,
                     help="--async: crossfade from the old chunk to the new one over "
                          "this many steps instead of jumping (try 8)")
@@ -308,6 +324,9 @@ def main(argv=None) -> int:
     ap.add_argument("--warmup", type=int, default=2,
                     help="--lerobot: inferences on a live obs before the episode "
                          "(absorbs torch.compile and CUDA-graph capture)")
+    ap.add_argument("--noise-seed", type=int, default=None,
+                    help="--lerobot: same sampling noise for every chunk (e.g. 0), so "
+                         "replanning doesn't wobble between random plans")
     ap.add_argument("--denoise-steps", type=int, default=None,
                     help="--lerobot: flow-matching steps (default: the checkpoint's)")
     ap.add_argument("--timeout", type=float, default=10.0, help="policy call timeout, s")
@@ -318,8 +337,10 @@ def main(argv=None) -> int:
 
     if not 0 < args.speed <= MAX_SPEED:
         ap.error(f"--speed must be in (0, {MAX_SPEED:g}]")
-    if args.blend_steps < 0 or (args.blend_steps and not args.async_infer):
-        ap.error("--blend-steps needs --async and must be >= 0")
+    for name in ("blend_steps", "ensemble_steps"):
+        n = getattr(args, name)
+        if n < 0 or (n and not args.async_infer):
+            ap.error(f"--{name.replace('_', '-')} needs --async and must be >= 0")
     if args.speed_percent is not None and not 1 <= args.speed_percent <= 100:
         ap.error("--speed-percent must be in [1, 100]")
     cfg = load_config(args.config)
@@ -349,7 +370,8 @@ def main(argv=None) -> int:
             kw = dict(path=args.lerobot,
                       camera_map=dict(kv.split(":") for kv in args.camera_map.split(",")),
                       base_offset=np.radians(args.base_offset_deg),
-                      compile_mode=args.compile, num_steps=args.denoise_steps)
+                      compile_mode=args.compile, num_steps=args.denoise_steps,
+                      noise_seed=args.noise_seed)
             extra = robot.get_end_pose if args.end_pose_state else None
             policy = (PolicyProcess(extra_state=extra, **kw) if args.policy_process
                       else LerobotPolicy(extra_state=extra, **kw))
@@ -366,7 +388,8 @@ def main(argv=None) -> int:
             summary = run(robot, policy, cfg, instruction=args.instruction,
                           live=args.live, speed=args.speed, max_steps=args.max_steps,
                           execute_steps=args.execute_steps, log_dir=log_dir,
-                          async_infer=args.async_infer, blend_steps=args.blend_steps)
+                          async_infer=args.async_infer, blend_steps=args.blend_steps,
+                          ensemble_steps=args.ensemble_steps)
         finally:
             policy.close()
         print(json.dumps(summary, indent=2))
