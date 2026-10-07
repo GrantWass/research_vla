@@ -39,12 +39,31 @@ checkpoint's conventions.
 | `lerobot_policy.py` | wraps a LeRobot checkpoint in the runner's policy interface |
 | `teleop.py` | far arm leads by hand, close arm follows through `SafetyFilter` |
 | `recorder.py` | records teleop demos into a LeRobot dataset (`teleop --record`) |
-| `park.py` | fold an arm and power it down gently (`make park ARM=1`) |
+| `arm.py` | everyday arm commands: `status`, `snapshot`, `move`, `home`, `park` (see Commands) |
 | `verify.py` | GPU and robot I/O checks: joints in limits, camera fps, snapshot PNGs, `--wiggle` (joint 6 +0.05 rad and back) |
 
 ## Commands
 
 Run from `~/research_vla`. Steps that move an arm say so and ask for confirmation.
+Arm 1 is the close arm, arm 2 the far arm. `ARMS` defaults to both.
+
+| Command | What it does |
+|---|---|
+| `make status [ARMS=1]` | Read-only: CAN link, joints (deg), gripper, end pose, mode, errors, motors on/off, base angle vs home |
+| `make snapshot` | Save every camera's current frame to `verify/snapshots/<time>/` |
+| `make move ARM=1 TO=-93,40,-30,0,30,0 [GRIP=30]` | Ease one arm to joint angles in degrees (J1 base ... J6 wrist roll), at most 0.3 rad/s, then hold. `BY=0,10,0,0,0,0` moves relative. Refuses targets outside the limits |
+| `make home [ARMS=1]` | Fold, then turn the base to face the table (`home_base` in `configs/piper.json`). Motors stay on |
+| `make park [ARMS=1]` | `home`, then damped stop and power down |
+| `make cans` | Are both CAN links up? |
+| `make leader-restore` | Take the far arm out of teaching mode (if a teleop session died) |
+| `make teleop [SECONDS=300]` | Far arm leads by hand, close arm follows |
+| `make record DIR=demos/<name> INSTR="..." [EPISODES=10]` | Teleop and record a LeRobot dataset |
+| `make policy [CKPT_HF=... INSTR="..." STEPS=300]` | Fast pi0.5 dry run on the close arm (flags below) |
+| `make policy-live [...]` | The same, moving the arm (asks YES; hand on e-stop) |
+
+The `make` targets wrap `python -m real_robot.arm` (`--help` lists its
+options), `real_robot.teleop` and `real_robot.runner`. The policy and record
+targets use the LeRobot venv (`LEROBOT_PY`).
 
 ```bash
 # I/O check (read-only; --wiggle moves joint 6 by 3 deg and asks first)
@@ -58,8 +77,8 @@ Run from `~/research_vla`. Steps that move an arm say so and ask for confirmatio
 ~/lerobot_robot_piper/.venv/bin/python -m real_robot.runner --backend piper \
   --config real_robot/configs/piper_1_banana.json --lerobot richardshkim/pi05_piper_banana_v2_full \
   --end-pose-state --base-offset-deg 90 --instruction "Put banana into basket." \
-  --max-steps 300 --execute-steps 30 --speed 1.0 \
-  --policy-process --compile reduce-overhead --async
+  --max-steps 300 --execute-steps 4 --speed 1.0 \
+  --policy-process --compile reduce-overhead --async --blend-steps 4
 
 # or a websocket policy server
 .venv/bin/python -m real_robot.runner --backend piper --config real_robot/configs/piper_1.json \
@@ -91,9 +110,18 @@ Flags for the LeRobot policy command:
   the actions that elapsed during inference, so the arm never pauses. A
   200-step dry run held 30 Hz (33.3 ms median step, 39.7 ms worst) and never
   ran out of actions.
+- `--execute-steps 4 --blend-steps 4`: replan as soon as each inference
+  lands (every ~5 steps, ~6 plans/s instead of 1) and blend each switch.
+  Consecutive chunks disagree by ~5 deg at a switch (12 deg max, live runs);
+  `--blend-steps N` carries that gap from the last action sent and shrinks
+  it over N steps. A 300-step dry run: switches 0.6 deg median (1.5 max),
+  30 Hz held (35 ms worst step), no starvation.
+- `--speed` (up to 2) plays actions faster than the demos were recorded;
+  `--speed-percent` raises the firmware speed cap (30) to keep up.
 - `--denoise-steps 5` halves the action-expert work (237 vs 358 ms eager) and
-  moves actions by 0.5 deg on average (2.4 deg max). With async inference it's
-  not needed.
+  moves actions by 0.5 deg on average (2.4 deg max). Compiled, it's no faster
+  (109 vs 111 ms): the compiled model is GPU-bound in the 2B prefix, 93 of
+  96 ms. Further speed needs fewer prefix tokens, INT8, or a faster GPU.
 
 ### Recording demos
 
@@ -121,10 +149,19 @@ directory per session; LeRobot's dataset tools can merge sessions.
   allowed.
 - **Disabling drops the arm.** At the lowest pose the firmware accepts, each
   arm sits about 1 inch above its base. Disabling the motors there drops it
-  that inch, and the wrist falls to about 37°. `make park ARM=1|2` is meant to
-  avoid that: it folds with J5 already at 37°, triggers the damped e-stop
-  (`EmergencyStop(0x01)`), waits, disables, then clears the e-stop (`0x02`).
-  **It hasn't run on the arms yet.** Run it the first time with someone watching.
+  that inch, and the wrist falls to about 37°. `make park` folds (base held),
+  turns the base to `home_base`, triggers the e-stop (`EmergencyStop(0x01)`),
+  waits 3 s, disables, then clears the e-stop (`0x02`), using the fold pose
+  J2 0°, J3 0°, J5 36.8°. That version, run on the far arm from an extended
+  pose (2026-10-07), looked OK. Two variants were worse, so don't bring them
+  back: a pose kept clear of the base (J3 -2°, J5 30-34°) held the arm ~1 cm
+  up and then dropped it hard, and an untried MIT-mode "soft landing" was
+  rejected. Watch the first few parks; the arm still settles its last ~2°
+  when the motors let go.
+- **Cameras.** The three color cameras share one USB 2.0 bus, so they stream
+  MJPG (raw YUYV doesn't fit three at once). They start one after another:
+  the third delivers its first frame ~2.7 s after opening, then all run at
+  30 fps.
 - **Teaching mode** (`MasterSlaveConfig 0xFA`) applies immediately, with no
   power cycle. The arm goes limp and the wrist sags about 30°. It broadcasts
   joint targets (0x155-0x157, gripper 0x159) **only while being moved**;
@@ -157,8 +194,6 @@ fine-tune pi0.5 base, LAP-3B or GigaBrain-0.7.
 
 ## Next steps
 
-1. First run of `make park` (above), with someone watching.
-2. Banana test on the close arm (needs a banana and a basket).
-3. Record demos of a few tasks (`teleop --record`, above), then fine-tune
+1. Record demos of a few tasks (`teleop --record`, above), then fine-tune
    (pi0.5 base, LAP-3B or GigaBrain-0.7). Recording has been tested against
    LeRobot with a mock robot, not yet on the arms.

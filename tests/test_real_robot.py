@@ -1,4 +1,6 @@
 """Real-robot bridge tests: mock robot + fake policy, no GPU/server/hardware."""
+import contextlib
+import io
 import json
 import os
 import time
@@ -320,9 +322,59 @@ class TestPiper(unittest.TestCase):
         arm.joints = [-90000, 10000, -10000, 0, 0, 5000]  # 0.001 deg
         b.park(sleep=lambda s: None, log=lambda *a: None)
         deg = np.asarray(arm.joints) / 1000
-        np.testing.assert_allclose(deg, [-90, 0, 0, 0, 36.8, 0], atol=0.1)  # base kept
+        np.testing.assert_allclose(deg, [-93.3, 0, 0, 0, 36.8, 0], atol=0.1)  # base to home
         tail = [c for c in arm.calls if c == "DisablePiper" or c[0] == "EmergencyStop"]
         self.assertEqual(tail, [("EmergencyStop", 1), "DisablePiper", ("EmergencyStop", 2)])
+
+    def test_home_folds_before_turning_base(self):
+        b, made = self.make()
+        arm = made["can_piper1"]
+        arm.joints = [-60000, 70000, -50000, 30000, -20000, 40000]  # extended, base off
+        seen = []
+        b.command_joints = (lambda f: (lambda q: (seen.append(np.degrees(q[:6])), f(q))))(b.command_joints)
+        b.home(sleep=lambda s: None, log=lambda *a: None)
+        path = np.asarray(seen)
+        folded = np.nonzero(np.abs(path[:, 1]) < 0.05)[0][0]  # first step with J2 down
+        self.assertTrue(np.allclose(path[:folded, 0], -60, atol=0.05))  # base still while folding
+        np.testing.assert_allclose(path[-1], [-93.3, 0, 0, 0, 36.8, 0], atol=0.1)
+        b.cfg.home_base = None
+        arm.joints = [-60000, 70000, -50000, 0, 0, 0]
+        b.home(sleep=lambda s: None, log=lambda *a: None)
+        self.assertAlmostEqual(arm.joints[0] / 1000, -60, places=1)  # no home_base: base kept
+
+    def _arm_cli(self, argv):
+        from real_robot import arm as arm_cli
+
+        b, made = self.make()
+        fake = made["can_piper1"]
+        fake.joints = [-93300, 0, 0, 0, 36800, 0]
+        b.hold = lambda: None
+        orig = arm_cli._connect
+        arm_cli._connect = lambda n, passive, cameras=None: b
+        import real_robot.backends as backends
+        sleep = backends.time.sleep
+        backends.time.sleep = lambda s: None
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                rc = arm_cli.main(argv)
+        finally:
+            arm_cli._connect = orig
+            backends.time.sleep = sleep
+        return rc, np.asarray(fake.joints) / 1000, fake.grip / 1000
+
+    def test_arm_move_absolute_relative_and_limits(self):
+        rc, deg, _ = self._arm_cli(["move", "--arm", "1", "--to", "-80,30,-20,10,20,5",
+                                    "--grip", "25", "--yes"])
+        self.assertEqual(rc, 0)
+        np.testing.assert_allclose(deg, [-80, 30, -20, 10, 20, 5], atol=0.1)
+        rc, deg, grip = self._arm_cli(["move", "--arm", "1", "--by", "0,10,-10,0,0,0", "--yes"])
+        self.assertEqual(rc, 0)
+        np.testing.assert_allclose(deg, [-93.3, 10, -10, 0, 36.8, 0], atol=0.1)
+        rc, deg, _ = self._arm_cli(["move", "--arm", "1", "--to", "-93,30,20,0,0,0", "--yes"])
+        self.assertEqual(rc, 2)  # J3 > 0 is outside the limits: refused, nothing moved
+        np.testing.assert_allclose(deg, [-93.3, 0, 0, 0, 36.8, 0], atol=0.1)
+        with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+            self._arm_cli(["move", "--arm", "1", "--to", "1,2,3", "--yes"])
 
     def test_single_arm_config(self):
         b, made = self.make()

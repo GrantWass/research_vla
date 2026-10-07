@@ -47,6 +47,9 @@ class RobotConfig:
     # (OpenCV index, /dev/v4l path, or "orbbec[:serial]"). Devices only needed on hardware.
     camera_names: list[str] = field(default_factory=lambda: ["cam_high", "cam_wrist"])
     cameras: dict[str, str | int] = field(default_factory=dict)
+    # Per arm: the base (joint 1) angle, rad, that faces the work area. park()
+    # and home() turn the base back to it after folding. None keeps the base.
+    home_base: list[float] | None = None
     # Piper firmware-side speed cap (MotionCtrl_2 speed, percent).
     arm_speed_percent: int = 30
     verified: bool = False  # set true once limits/mapping are checked on hardware
@@ -84,6 +87,8 @@ class RobotConfig:
                 raise ValueError(f"{name} must be [lo, hi] with lo != hi")
         if self.control_hz <= 0:
             raise ValueError("control_hz must be positive")
+        if self.home_base is not None and len(self.home_base) != len(self.arms):
+            raise ValueError(f"home_base needs one angle per arm ({len(self.arms)})")
         if not self.camera_names:
             raise ValueError("camera_names must not be empty")
 

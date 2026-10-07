@@ -8,6 +8,8 @@
   "gripper_real_range": [0.0, 0.07],
   "control_hz": 25.0,
   "camera_names": ["cam_high", "cam_wrist"],
+  "_home_base": "-93.3 deg: both arms' bases were turned to face the table (2026-10-06)",
+  "home_base": [-1.6284],
   "arm_speed_percent": 30,
   "verified": true
 }

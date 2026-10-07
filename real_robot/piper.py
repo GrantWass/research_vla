@@ -15,6 +15,9 @@ UM_PER_M = 1e6  # piper_sdk gripper stroke is 0.001 mm
 
 # Folded pose to power down from: J2/J3 at the firmware's lowest accepted
 # values, wrist bent to where it falls anyway (~37 deg) so it has nowhere to drop.
+# This is the pose of the first far-arm park test (2026-10-07), which the user
+# judged OK. Variants with J3 -2 / J5 30-34 deg (to stay clear of the base)
+# held the arm ~1 cm up and then dropped it hard at release: don't use them.
 PARK_J2_TO_J6 = np.array([0.0, 0.0, 0.0, 0.642, 0.0])
 
 
@@ -106,24 +109,44 @@ class PiperBackend(RobotBackend):
             except Exception:  # never let hold() raise during cleanup
                 pass
 
-    def park(self, hz: float = 25.0, settle_s: float = 3.0, sleep=time.sleep, log=print) -> None:
-        """Fold, then power down gently instead of dropping (UNTESTED on the arms).
-
-        Disabling the motors at the fold drops each arm ~1 inch onto its base
-        and the wrist to ~37 deg. So: ease to PARK_J2_TO_J6 (keeping the base
-        angle and gripper), trigger the firmware's damped emergency stop
-        (EmergencyStop 0x01: joints descend slowly), wait settle_s, disable,
-        then clear the e-stop (0x02) so the next EnablePiper works.
-        """
-        if self.passive:
-            raise RuntimeError("PiperBackend is passive; refusing to park")
+    def home_pose(self) -> np.ndarray:
+        """Folded rest pose: J2-J6 at PARK_J2_TO_J6, base at cfg.home_base
+        (or where it is), gripper unchanged."""
         q = self.get_joint_state()
         target = q.copy()
         for k in range(len(self.arms)):
             target[PER_ARM * k + 1:PER_ARM * k + 6] = PARK_J2_TO_J6
-        target = np.clip(target, self.cfg.joint_lower, self.cfg.joint_upper)
-        log(f"folding to deg {np.degrees(target[:6]).round(0)}")
-        ease_to(self, SafetyFilter(self.cfg), target, hz, vel=0.2, sleep=sleep)
+            if self.cfg.home_base is not None:
+                target[PER_ARM * k] = self.cfg.home_base[k]
+        return np.clip(target, self.cfg.joint_lower, self.cfg.joint_upper)
+
+    def home(self, hz: float = 25.0, vel: float = 0.2, sleep=time.sleep, log=print) -> None:
+        """Fold (base kept), then turn the base to cfg.home_base. Folding
+        first keeps an extended arm from sweeping across the table. Leaves
+        the motors on, holding."""
+        if self.passive:
+            raise RuntimeError("PiperBackend is passive; refusing to move")
+        safety = SafetyFilter(self.cfg)
+        target = self.home_pose()
+        folded = target.copy()
+        q = self.get_joint_state()
+        for k in range(len(self.arms)):
+            folded[PER_ARM * k] = q[PER_ARM * k]
+        log(f"folding to deg {np.degrees(folded[:6]).round(0)}")
+        ease_to(self, safety, folded, hz, vel=vel, sleep=sleep)
+        if np.max(np.abs(target - folded)) > np.radians(0.5):
+            log(f"turning base to deg {np.degrees(target[:6]).round(0)}")
+            ease_to(self, safety, target, hz, vel=vel, sleep=sleep)
+
+    def park(self, hz: float = 25.0, settle_s: float = 3.0, sleep=time.sleep, log=print) -> None:
+        """home(), then power down gently instead of dropping.
+
+        Disabling the motors at the fold drops each arm ~1 inch onto its base
+        and the wrist to ~37 deg. So after home(): trigger the firmware's
+        damped emergency stop (EmergencyStop 0x01: joints sink slowly), wait settle_s,
+        disable, then clear the e-stop (0x02) so the next EnablePiper works.
+        """
+        self.home(hz=hz, sleep=sleep, log=log)
         log("damped stop, then disable")
         for arm in self.arms.values():
             arm.EmergencyStop(0x01)

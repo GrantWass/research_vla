@@ -16,6 +16,10 @@ class OpenCVCameras:
     """
 
     max_age_s = 0.5  # read() fails rather than hand the policy an old frame
+    # The rig's cameras start one after another: with three open, the last
+    # delivers its first frame ~2.7 s after opening. Until every camera has
+    # delivered once, read() waits this long instead of 2 s.
+    startup_s = 8.0
 
     def __init__(self, devices: dict[str, str | int], names):
         missing = [c for c in names if c not in devices]
@@ -33,6 +37,11 @@ class OpenCVCameras:
         self.stop = threading.Event()
         for name in names:
             cap = cv2.VideoCapture(devices[name])
+            # MJPG, not the default raw YUYV: the rig's three cameras share one
+            # USB 2.0 bus, and three raw 640x480 30 fps streams (~18 MB/s
+            # each) don't fit; the third camera then delivers no frames.
+            cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
+            cap.set(cv2.CAP_PROP_FPS, 30)
             cap.set(cv2.CAP_PROP_FRAME_WIDTH, IMAGE_HW[1])
             cap.set(cv2.CAP_PROP_FRAME_HEIGHT, IMAGE_HW[0])
             if not cap.isOpened():
@@ -58,7 +67,9 @@ class OpenCVCameras:
     def read(self) -> dict[str, np.ndarray]:
         import time
 
-        deadline = time.monotonic() + 2.0
+        with self.lock:
+            started = all(self.frame_counts.values())
+        deadline = time.monotonic() + (2.0 if started else self.startup_s)
         while True:
             with self.lock:
                 frames = dict(self.latest)

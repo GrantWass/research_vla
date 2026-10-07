@@ -1,4 +1,4 @@
-.PHONY: help test test-verbose setup check clean doctor inventory policies install-adapter setup-policy dry-run eval smoke smoke-all robot-venv robot-check teleop park
+.PHONY: help test test-verbose setup check clean doctor inventory policies install-adapter setup-policy dry-run eval smoke smoke-all robot-venv robot-check teleop park status snapshot home move cans leader-restore policy policy-live record
 .DEFAULT: help
 
 # Repo venv when present (robot deps), else system python.
@@ -10,8 +10,15 @@ POLICY ?= pi05
 TASK ?=
 CKPT ?=
 MODE ?= eval
-# Robot: make robot-check ARM=2
+# Robot: make robot-check ARM=2, make park ARMS="1 2"
 ARM ?= 1
+ARMS ?= 1 2
+# LeRobot venv (pi0.5 policies, demo recording): ROBOT_PC_SETUP in docs/robot.md
+LEROBOT_PY ?= $(HOME)/lerobot_robot_piper/.venv/bin/python
+# make policy: LeRobot checkpoint, instruction, steps; LIVE=1 moves the arm
+CKPT_HF ?= richardshkim/pi05_piper_banana_v2_full
+INSTR ?= Put banana into basket.
+STEPS ?= 300
 
 help:
 	@echo "make test                Unit tests (CPU only; no GPU, Isaac or robot)"
@@ -19,9 +26,17 @@ help:
 	@echo ""
 	@echo "Robot (docs/robot.md)"
 	@echo "make robot-venv          Create .venv from requirements/robot.txt"
-	@echo "make robot-check [ARM=1|2]  Read-only joint/camera check -> verify/piper_ARM/"
-	@echo "make teleop [SECONDS=300]   Far arm leads, close arm follows"
-	@echo "make park [ARM=1|2]         Fold and power down gently (asks first)"
+	@echo "make status [ARMS=\"1 2\"]    Read-only: joints, end pose, motors, base vs home"
+	@echo "make snapshot [ARMS=...]      Save every camera's frame -> verify/snapshots/<time>/"
+	@echo "make home [ARMS=...]          Fold + face the table, motors stay on (asks first)"
+	@echo "make park [ARMS=...]          Fold + face the table + gentle power-down (asks first)"
+	@echo "make move ARM=1 TO=j1,..,j6 | BY=d1,..,d6 [GRIP=mm]  Ease one arm (deg; asks first)"
+	@echo "make cans                     CAN links up? | make leader-restore: far arm out of teach mode"
+	@echo "make policy [CKPT_HF=.. INSTR=.. STEPS=300]  Fast pi0.5 dry run on the close arm"
+	@echo "make policy-live [...]        Same, moving the arm (asks YES; hand on e-stop)"
+	@echo "make teleop [SECONDS=300]     Far arm leads, close arm follows"
+	@echo "make record DIR=demos/x INSTR=\"...\" [EPISODES=10]  Teleop + record LeRobot demos"
+	@echo "make robot-check [ARM=1|2]    Read-only joint/camera check -> verify/piper_ARM/"
 	@echo ""
 	@echo "Sim (docs/sim.md)"
 	@echo "make policies            List registered policies (policies/*.conf)"
@@ -60,8 +75,44 @@ SECONDS ?= 300
 teleop:
 	$(PY) -m real_robot.teleop --leader can_piper2 --follower-config real_robot/configs/piper_1.json --seconds $(SECONDS)
 
+# Arm commands (real_robot/arm.py); arm 1 = close, 2 = far.
+status:
+	$(PY) -m real_robot.arm status --arms $(ARMS)
+
+snapshot:
+	$(PY) -m real_robot.arm snapshot --arms $(ARMS)
+
+home:
+	$(PY) -m real_robot.arm home --arms $(ARMS)
+
 park:
-	$(PY) -m real_robot.park --config real_robot/configs/piper_$(ARM).json
+	$(PY) -m real_robot.arm park --arms $(ARMS)
+
+move:
+	$(PY) -m real_robot.arm move --arm $(ARM) $(if $(TO),--to $(TO),--by $(BY)) $(if $(GRIP),--grip $(GRIP))
+
+cans:
+	@ip -br link | grep can || echo "no CAN links: plug in the adapters (docs/robot.md)"
+
+leader-restore:
+	$(PY) -m real_robot.teleop --leader can_piper2 --restore-leader
+
+# Fast pi0.5 on the close arm: child process, CUDA graphs, async replanning
+# every inference (~6/s) with 4-step blending; see docs/robot.md.
+POLICY_FLAGS = --backend piper --config real_robot/configs/piper_1_banana.json \
+	--lerobot $(CKPT_HF) --end-pose-state --base-offset-deg 90 --instruction "$(INSTR)" \
+	--max-steps $(STEPS) --execute-steps 4 --speed 1.0 \
+	--policy-process --compile reduce-overhead --async --blend-steps 4
+policy:
+	$(LEROBOT_PY) -m real_robot.runner $(POLICY_FLAGS)
+
+policy-live:
+	$(LEROBOT_PY) -m real_robot.runner $(POLICY_FLAGS) --live
+
+EPISODES ?= 10
+record:
+	@test -n "$(DIR)" || (echo "make record DIR=demos/<name> INSTR=\"<instruction>\""; exit 2)
+	$(LEROBOT_PY) -m real_robot.teleop --record $(DIR) --task "$(INSTR)" --episodes $(EPISODES)
 
 # ---- sim
 
