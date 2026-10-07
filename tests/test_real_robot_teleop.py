@@ -14,7 +14,8 @@ except ImportError:  # pragma: no cover
 if np is not None:
     from real_robot.backends import MockBackend
     from real_robot.config import RobotConfig
-    from real_robot.teleop import PiperLeader, teleop
+    from real_robot.piper import PiperLeader
+    from real_robot.teleop import teleop
 
 
 class _NS:

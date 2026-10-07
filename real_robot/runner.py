@@ -172,7 +172,7 @@ def run(robot: RobotBackend, policy, cfg: RobotConfig, *, instruction: str,
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--backend", default="mock", choices=["mock", "piper", "arx_x5"])
+    ap.add_argument("--backend", default="mock", choices=["mock", "piper"])
     ap.add_argument("--config", help="robot JSON config (real_robot/configs/*.json)")
     ap.add_argument("--url", default="ws://localhost:6000")
     ap.add_argument("--lerobot", metavar="PATH",

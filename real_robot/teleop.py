@@ -20,65 +20,13 @@ import time
 
 import numpy as np
 
-from .backends import _MDEG_PER_RAD, _UM_PER_M, PiperBackend, _default_piper_factory
 from .config import load_config
+from .piper import PiperBackend, PiperLeader
 from .safety import SafetyFilter
 
 START_MISMATCH_RAD = 0.8  # refuse to start if follower and leader differ more (~46 deg; eased at 0.3 rad/s)
 LEADER_GLITCH_RAD = 0.5  # leader joint jump between two samples that we treat as bad data
 FOLLOW_LAG_ABORT = 1.0   # follower this far behind the leader on any joint: stop (stuck/blocked)
-
-
-class PiperLeader:
-    def __init__(self, can: str, sdk_factory=None):
-        self.arm = (sdk_factory or _default_piper_factory)(can)
-
-    def connect(self) -> None:
-        self.arm.ConnectPort()
-        self.arm.MasterSlaveConfig(0xFA, 0, 0, 0)  # teaching input arm
-        time.sleep(0.3)
-
-    def wait_for_broadcast(self, timeout_s: float = 30.0, settle_s: float = 0.2,
-                           tol_rad: float = 0.02, sleep=time.sleep) -> None:
-        """Block until the leader's broadcast is complete and steady.
-
-        A teaching arm broadcasts only while it is being moved, and its six
-        joints arrive in three CAN frames (0x155-0x157): until each has been
-        seen the SDK reports 0 for those joints. So wait for the first frame,
-        then for readings that stay within tol_rad for settle_s.
-        """
-        deadline = time.monotonic() + timeout_s
-        ts0 = self.arm.GetArmJointCtrl().time_stamp
-        while self.arm.GetArmJointCtrl().time_stamp == ts0:
-            if time.monotonic() > deadline:
-                raise RuntimeError("leader sent nothing: move it a little by hand "
-                                   "(is it in teaching mode and powered?)")
-            sleep(0.02)
-        ref, steady_since = self.read(), time.monotonic()
-        while time.monotonic() - steady_since < settle_s:
-            if time.monotonic() > deadline:
-                raise RuntimeError("leader readings never settled; hold it still for a moment")
-            sleep(0.02)
-            q = self.read()
-            if np.max(np.abs(q[:6] - ref[:6])) > tol_rad:
-                ref, steady_since = q, time.monotonic()
-
-    def restore_follower_mode(self) -> None:
-        self.arm.MasterSlaveConfig(0xFC, 0, 0, 0)
-
-    def read(self) -> np.ndarray:
-        """(7,) joint targets the leader broadcasts: 6 joints rad + gripper m."""
-        j = self.arm.GetArmJointCtrl().joint_ctrl
-        g = self.arm.GetArmGripperCtrl().gripper_ctrl
-        return np.asarray([getattr(j, f"joint_{i}") / _MDEG_PER_RAD for i in range(1, 7)]
-                          + [abs(g.grippers_angle) / _UM_PER_M], dtype=np.float64)
-
-    def read_feedback(self) -> np.ndarray:
-        """(7,) measured joints (rad) + gripper (m), for comparison."""
-        j = self.arm.GetArmJointMsgs().joint_state
-        g = self.arm.GetArmGripperMsgs().gripper_state
-        return np.asarray([getattr(j, f"joint_{i}") / _MDEG_PER_RAD for i in range(1, 7)]
-                          + [g.grippers_angle / _UM_PER_M], dtype=np.float64)
 
 
 def ease_to(robot: PiperBackend, safety: SafetyFilter, target: np.ndarray, hz: float,

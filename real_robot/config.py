@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass, field
 
 # Per arm: 6 joints then 1 gripper; arms are concatenated in `arms` order.
@@ -91,13 +92,18 @@ class RobotConfig:
             raise ValueError("camera_names must not be empty")
 
 
+def _read_json(path: str) -> dict:
+    """A config file; "extends": "<file>" (relative to it) loads that file first
+    and overrides its keys. Keys starting with "_" are comments."""
+    with open(path) as f:
+        raw = json.load(f)
+    base = raw.pop("extends", None)
+    if base is not None:
+        raw = {**_read_json(os.path.join(os.path.dirname(path), base)), **raw}
+    return {k: v for k, v in raw.items() if not k.startswith("_")}
+
+
 def load_config(path: str | None) -> RobotConfig:
-    if path is None:
-        cfg = RobotConfig()
-    else:
-        with open(path) as f:
-            raw = json.load(f)
-        raw = {k: v for k, v in raw.items() if not k.startswith("_")}
-        cfg = RobotConfig(**raw)
+    cfg = RobotConfig() if path is None else RobotConfig(**_read_json(path))
     cfg.validate()
     return cfg

@@ -1,53 +1,9 @@
 {
-  "_note": "Piper robot 2 (single arm). Joint limits from the Piper spec sheet (J1 +-150, J2 0..180, J3 -170..0; both arms rest at about J2 -2 deg / J3 +2 deg, just past these limits; the firmware (S-V1.8-3) clamps commands to J2 >= 0 / J3 <= 0, so commanding the rest pose lifts the arm 2 deg (seen 2026-10-06), and SafetyFilter.check_state's 0.05 rad margin accepts the rest pose, J4 +-100, J5 +-70, J6 +-120 deg), gripper stroke 0..0.07 m: VERIFY against your firmware/manual, then set verified=true. Mapping is identity (policy trained in Piper units). CAN name pinned to the adapter serial by real_robot/can_persist.sh; Cameras (2026-10-06): three Orbbec Astra Pro Plus whose color sensors all report serial SN0001, so they are addressed by USB port (/dev/v4l/by-path), not by-id: keep each in the same port. cam_high = high stationary camera (port 5.2, shared by both robots, so only one runner at a time), cam_wrist = camera on top of this arm (port 1.2). This arm is the far one from the operator seat.",
-  "arms": {
-    "arm": "can_piper2"
-  },
-  "joint_lower": [
-    -2.618,
-    0.0,
-    -2.967,
-    -1.745,
-    -1.22,
-    -2.094,
-    0.0
-  ],
-  "joint_upper": [
-    2.618,
-    3.14,
-    0.0,
-    1.745,
-    1.22,
-    2.094,
-    0.07
-  ],
-  "max_step_delta": [
-    0.03,
-    0.03,
-    0.03,
-    0.05,
-    0.05,
-    0.05,
-    0.01
-  ],
-  "abort_delta": 0.5,
-  "gripper_sim_range": [
-    0.0,
-    0.07
-  ],
-  "gripper_real_range": [
-    0.0,
-    0.07
-  ],
-  "control_hz": 25.0,
-  "camera_names": [
-    "cam_high",
-    "cam_wrist"
-  ],
+  "_note": "Far arm (from the operator seat); the teleop leader. cam_wrist: USB port 1.2.",
+  "extends": "piper.json",
+  "arms": {"arm": "can_piper2"},
   "cameras": {
     "cam_high": "/dev/v4l/by-path/pci-0000:00:14.0-usb-0:5.2:1.0-video-index0",
     "cam_wrist": "/dev/v4l/by-path/pci-0000:00:14.0-usb-0:1.2:1.0-video-index0"
-  },
-  "arm_speed_percent": 30,
-  "verified": false
+  }
 }

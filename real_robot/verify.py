@@ -1,21 +1,13 @@
-"""First-contact verification: GPU, robot I/O, and pi0.5 plumbing.
+"""Hardware check: GPU and robot I/O. Writes report.json + PNGs to --out.
 
-Stages (run separately or `all`); everything lands in --out with a report.json:
+Stages (run separately or `all`):
 
   gpu     driver/VRAM, JAX + torch see the GPU (no robot, no model)
   robot   read joints (read-only), check limits, grab camera frames, save
           snapshot.npz + raw PNGs. `--wiggle` additionally commands joint 6
           +0.05 rad and back (asks first) to verify command units/sign.
-  policy  load a pi0.5 checkpoint, feed it the snapshot (or live robot),
-          save the exact 224x224 images the model receives, check every
-          dimension hop (ours 7 -> model -> ours 7), latency and VRAM.
 
-Policy stage uses upstream openpi (`pi05_droid` is not in RoboDojo's fork).
-pi05_droid is a Franka policy: this checks plumbing, not behaviour; its
-actions are NOT meaningful positions for a Piper and are never sent.
-
-  python3 -m real_robot.verify --stage robot  --config real_robot/configs/piper_1.json --out verify/piper_1
-  python3 -m real_robot.verify --stage policy --snapshot verify/piper_1/snapshot.npz --out verify/piper_1
+  python3 -m real_robot.verify --stage robot --config real_robot/configs/piper_1.json --out verify/piper_1
 """
 from __future__ import annotations
 
@@ -172,106 +164,15 @@ def stage_robot(rep: Report, robot, cfg: RobotConfig, wiggle: bool = False,
     return {"state": q, "images": imgs}
 
 
-# ---------------------------------------------------------------- policy
-def to_droid_obs(state: np.ndarray, images: dict, cfg: RobotConfig, prompt: str) -> dict:
-    """Single-arm ours (6 joints + grip, base + wrist cam) -> openpi DROID keys.
-
-    DROID is a 7-joint Franka: our 6 joints are zero-padded to 7. Only the
-    first arm is used.
-    """
-    joints = np.zeros(7, dtype=np.float64)
-    joints[:ARM_DOF] = state[:ARM_DOF]
-    lo, hi = cfg.gripper_real_range
-    grip = np.clip((state[ARM_DOF] - lo) / (hi - lo), 0, 1)
-    names = cfg.camera_names
-    return {
-        "observation/exterior_image_1_left": images[names[0]],
-        "observation/wrist_image_left": images[names[1] if len(names) > 1 else names[0]],
-        "observation/joint_position": joints,
-        "observation/gripper_position": np.asarray([grip]),
-        "prompt": prompt,
-    }
-
-
-def from_droid_actions(actions: np.ndarray, cfg: RobotConfig) -> np.ndarray:
-    """(T, 8) DROID [7 joints, grip] -> (T, 7) ours [6 joints, grip]."""
-    a = np.asarray(actions)
-    return np.concatenate([a[:, :ARM_DOF], a[:, 7:8]], axis=1)
-
-
-def load_openpi_policy(config_name: str, checkpoint: str):
-    from openpi.policies import policy_config
-    from openpi.shared import download
-    from openpi.training import config as _config
-
-    try:
-        tc = _config.get_config(config_name)
-    except ValueError as e:
-        raise SystemExit(f"{e}\nUse an upstream openpi checkout (RoboDojo's fork lacks "
-                         f"{config_name}).") from e
-    return policy_config.create_trained_policy(tc, download.maybe_download(checkpoint))
-
-
-def stage_policy(rep: Report, policy, cfg: RobotConfig, state: np.ndarray, images: dict,
-                 prompt: str, n_infer: int = 5) -> None:
-    S = "policy"
-    obs = to_droid_obs(state, images, cfg, prompt)
-    rep.check(S, "our state -> model state", None,
-              f"{state.shape} -> joint_position {obs['observation/joint_position'].shape} "
-              f"+ gripper {obs['observation/gripper_position'].shape}")
-
-    # Exactly what the network receives, after openpi's input transforms.
-    import copy
-    seen = policy._input_transform(copy.deepcopy(obs))
-    for name, img in seen["image"].items():
-        img = np.asarray(img)
-        if img.dtype != np.uint8:
-            img = ((img + 1.0) * 127.5).clip(0, 255).astype(np.uint8) if img.min() < 0 \
-                else (img * 255).clip(0, 255).astype(np.uint8)
-        masked = not bool(np.asarray(seen["image_mask"][name]))
-        save_png(os.path.join(rep.out, f"model_sees_{name}.png"), img)
-        rep.check(S, f"model image {name}", None,
-                  f"{img.shape}{' (masked out: unused slot)' if masked else ''}")
-    st = np.asarray(seen["state"])
-    rep.check(S, "normalized state", bool(np.all(np.abs(st) < 10)),
-              f"dim {st.shape}, max |x| {np.max(np.abs(st)):.2f} (huge = norm-stat mismatch)")
-
-    times = []
-    out = None
-    for _ in range(n_infer):
-        t0 = time.perf_counter()
-        out = policy.infer(copy.deepcopy(obs))
-        times.append((time.perf_counter() - t0) * 1e3)
-    acts = np.asarray(out["actions"])
-    rep.check(S, "model action chunk", acts.ndim == 2 and acts.shape[1] >= 8, str(acts.shape))
-    ours = from_droid_actions(acts, cfg)
-    rep.check(S, "model -> our action", ours.shape[1] == 7, f"{acts.shape} -> {ours.shape}")
-    rep.check(S, "actions finite", bool(np.all(np.isfinite(ours))))
-    rep.check(S, "latency ms (first, then warm median)", None,
-              f"{times[0]:.0f}, {np.median(times[1:]) if len(times) > 1 else float('nan'):.0f}")
-    try:
-        import jax
-        stats = jax.devices()[0].memory_stats() or {}
-        peak = stats.get("peak_bytes_in_use")
-        rep.check(S, "peak VRAM GiB", None, round(peak / 2**30, 2) if peak else "n/a")
-    except Exception:  # noqa: BLE001
-        pass
-    rep.check(S, "actions sent to robot", None, "none (verification only)")
-
-
 # ---------------------------------------------------------------- main
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--stage", choices=["gpu", "robot", "policy", "all"], default="all")
+    ap.add_argument("--stage", choices=["gpu", "robot", "all"], default="all")
     ap.add_argument("--backend", choices=["mock", "piper"], default="piper")
     ap.add_argument("--config", help="robot config JSON (piper_1.json, piper_2.json)")
     ap.add_argument("--out", required=True)
     ap.add_argument("--wiggle", action="store_true", help="robot stage: tiny commanded move")
-    ap.add_argument("--snapshot", help="policy stage: use this snapshot.npz, not a live robot")
-    ap.add_argument("--policy-config", default="pi05_droid")
-    ap.add_argument("--checkpoint", default="gs://openpi-assets/checkpoints/pi05_droid")
-    ap.add_argument("--prompt", default="pick up the cube")
     args = ap.parse_args(argv)
 
     cfg = load_config(args.config)
@@ -280,26 +181,21 @@ def main(argv=None) -> int:
     try:
         if args.stage in ("gpu", "all"):
             stage_gpu(rep)
-        snap = None
-        if args.stage in ("robot", "all") or (args.stage == "policy" and not args.snapshot):
-            from .backends import MockBackend, PiperBackend
-            robot = (MockBackend(cfg) if args.backend == "mock"
-                     else PiperBackend(cfg, passive=not args.wiggle))
+        if args.stage in ("robot", "all"):
+            if args.backend == "mock":
+                from .backends import MockBackend
+                robot = MockBackend(cfg)
+            else:
+                from .piper import PiperBackend
+                robot = PiperBackend(cfg, passive=not args.wiggle)
             robot.connect()
-            snap = stage_robot(rep, robot, cfg, wiggle=args.wiggle)
-        if args.stage in ("policy", "all"):
-            if args.snapshot:
-                z = np.load(args.snapshot)
-                snap = {"state": z["state"],
-                        "images": {k[4:]: z[k] for k in z.files if k.startswith("img_")}}
-            policy = load_openpi_policy(args.policy_config, args.checkpoint)
-            stage_policy(rep, policy, cfg, snap["state"], snap["images"], args.prompt)
+            stage_robot(rep, robot, cfg, wiggle=args.wiggle)
     finally:
         rep.save()
         if robot is not None:
             robot.hold()
             robot.close()
-    bad = [s for s in ("gpu", "robot", "policy") if rep.failed(s)]
+    bad = [s for s in ("gpu", "robot") if rep.failed(s)]
     print(f"report: {rep.path}  ->  " + ("ALL PASS" if not bad else f"FAILED: {bad}"))
     return 1 if bad else 0
 

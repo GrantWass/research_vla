@@ -13,7 +13,8 @@ except ImportError:  # pragma: no cover
     np = None
 
 if np is not None:
-    from real_robot.backends import MockBackend, PiperBackend
+    from real_robot.backends import MockBackend
+    from real_robot.piper import PiperBackend
     from real_robot.record import record_episode
     from real_robot.config import STATE_DIM, RobotConfig, load_config
     from real_robot.mapping import real_to_sim, sim_to_real
@@ -52,9 +53,11 @@ class TestRealRobot(unittest.TestCase):
     def setUp(self):
         self.cfg = RobotConfig(verified=True)
 
-    def test_shipped_config_loads(self):
-        cfg = load_config(os.path.join(REPO, "real_robot/configs/arx_x5.json"))
-        self.assertFalse(cfg.verified)  # must stay false until checked on hardware
+    def test_config_extends_base(self):
+        cfg = load_config(os.path.join(REPO, "real_robot/configs/piper_1_banana.json"))
+        self.assertEqual(cfg.arms, {"arm": "can_piper1"})  # from piper_1.json
+        self.assertEqual(cfg.joint_upper[6], 0.07)  # from piper.json
+        self.assertEqual(cfg.control_hz, 30.0)  # its own override
 
     def test_bad_config_rejected(self):
         with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
@@ -371,7 +374,7 @@ class TestOrbbec(unittest.TestCase):
             import cv2  # noqa: F401
         except ImportError:
             self.skipTest("opencv not installed")
-        from real_robot.backends import OrbbecCameras
+        from real_robot.cameras import OrbbecCameras
         self.OrbbecCameras = OrbbecCameras
 
     def test_reads_rgb_at_sim_size_and_depth(self):
@@ -405,11 +408,11 @@ class TestOrbbec(unittest.TestCase):
         self.assertEqual(sdk.started[-1][0].serial, "CD2")
 
     def test_router_splits_by_device(self):
-        from real_robot.backends import _is_orbbec
-        self.assertTrue(_is_orbbec("orbbec"))
-        self.assertTrue(_is_orbbec("orbbec:AB1"))
-        self.assertFalse(_is_orbbec("/dev/v4l/by-id/usb-orbbec"))
-        self.assertFalse(_is_orbbec(0))
+        from real_robot.cameras import is_orbbec
+        self.assertTrue(is_orbbec("orbbec"))
+        self.assertTrue(is_orbbec("orbbec:AB1"))
+        self.assertFalse(is_orbbec("/dev/v4l/by-id/usb-orbbec"))
+        self.assertFalse(is_orbbec(0))
 
 
 if __name__ == "__main__":

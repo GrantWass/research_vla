@@ -23,7 +23,8 @@ import time
 
 import numpy as np
 
-from .backends import MockBackend, PiperBackend, RobotBackend
+from .backends import MockBackend, RobotBackend
+from .piper import PiperBackend
 from .config import RobotConfig, load_config
 
 

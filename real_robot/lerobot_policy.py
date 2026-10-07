@@ -6,7 +6,7 @@ reset / update_obs(obs) / get_action -> (T, 7) chunk in policy units.
   python3 -m real_robot.runner --backend piper --config real_robot/configs/piper_1_banana.json \\
       --lerobot richardshkim/pi05_piper_banana_v2_full --instruction "Put banana into basket."
 
-Needs a LeRobot venv with the pi extra (ROBOT_PC_SETUP.md), not the repo venv.
+Needs a LeRobot venv with the pi extra (docs/robot.md), not the repo venv.
 """
 from __future__ import annotations
 
