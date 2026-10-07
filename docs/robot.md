@@ -57,7 +57,9 @@ Run from `~/research_vla`. Steps that move an arm say so and ask for confirmatio
 # run a LeRobot policy: dry run first, then add --live (asks for YES; hand on e-stop)
 ~/lerobot_robot_piper/.venv/bin/python -m real_robot.runner --backend piper \
   --config real_robot/configs/piper_1_banana.json --lerobot richardshkim/pi05_piper_banana_v2_full \
-  --end-pose-state --instruction "Put banana into basket." --max-steps 300 --execute-steps 30 --speed 0.5
+  --end-pose-state --base-offset-deg 90 --instruction "Put banana into basket." \
+  --max-steps 300 --execute-steps 30 --speed 1.0 \
+  --policy-process --compile reduce-overhead --async
 
 # or a websocket policy server
 .venv/bin/python -m real_robot.runner --backend piper --config real_robot/configs/piper_1.json \
@@ -68,6 +70,30 @@ Each run logs to `real_robot_logs/<time>-{dry,live}/`: `summary.json`
 (status, inference latency, safety clips), `trajectory.npz` (`q_real`,
 `target_real`, `cmd_real` per step) and `first_frame.npz`. After a dry run,
 check that `safety.max_requested_delta` is small and that there was no abort.
+
+Flags for the LeRobot policy command:
+
+- `--base-offset-deg 90`: the close arm's base sits at about -93 deg to face
+  our table, and the banana checkpoint was trained at J1 between -15 and +26
+  deg. The policy sees J1 + 90 deg and an end pose rotated to match; without
+  the offset it tries to swing the base back on its first step.
+- `--policy-process`: runs the policy in a child process. In the robot
+  process, piper_sdk's CAN reader thread competes with PyTorch for the GIL
+  (eager inference 358 ms alone, 682 ms next to the arm).
+- `--compile reduce-overhead`: torch.compile with CUDA graphs. Eager pi0.5
+  launches about 13,700 kernels per call and is CPU-bound. Inference drops to
+  about 110 ms on the RTX 3090, and the actions stay within 0.2 deg of eager.
+  The first compile on a machine takes about 6 minutes. Kernels are cached in
+  `~/.cache/torchinductor`, so later starts compile in about 40 s. The runner
+  warms up on a live observation before the episode (`--warmup`, default 2).
+  `max-autotune` was no faster (124 ms) and compiles for 10 minutes.
+- `--async`: infers the next chunk while the current one executes and skips
+  the actions that elapsed during inference, so the arm never pauses. A
+  200-step dry run held 30 Hz (33.3 ms median step, 39.7 ms worst) and never
+  ran out of actions.
+- `--denoise-steps 5` halves the action-expert work (237 vs 358 ms eager) and
+  moves actions by 0.5 deg on average (2.4 deg max). With async inference it's
+  not needed.
 
 ### Recording demos
 
