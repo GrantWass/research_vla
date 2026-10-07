@@ -108,11 +108,13 @@ class PiperBackend(RobotBackend):
 
     def home_pose(self) -> np.ndarray:
         """Folded rest pose: J2-J6 at PARK_J2_TO_J6, base at cfg.home_base
-        (or where it is), gripper unchanged."""
+        (or where it is), gripper closed (policies expect to start closed:
+        the banana checkpoint started from an open gripper curled up)."""
         q = self.get_joint_state()
         target = q.copy()
         for k in range(len(self.arms)):
             target[PER_ARM * k + 1:PER_ARM * k + 6] = PARK_J2_TO_J6
+            target[PER_ARM * k + 6] = 0.0
             if self.cfg.home_base is not None:
                 target[PER_ARM * k] = self.cfg.home_base[k]
         return np.clip(target, self.cfg.joint_lower, self.cfg.joint_upper)

@@ -77,8 +77,9 @@ targets use the LeRobot venv (`LEROBOT_PY`).
 ~/lerobot_robot_piper/.venv/bin/python -m real_robot.runner --backend piper \
   --config real_robot/configs/piper_1_banana.json --lerobot richardshkim/pi05_piper_banana_v2_full \
   --end-pose-state --base-offset-deg 90 --instruction "Put banana into basket." \
-  --max-steps 300 --execute-steps 4 --speed 0.5 \
-  --policy-process --compile reduce-overhead --async --blend-steps 4 --noise-seed 0
+  --max-steps 300 --execute-steps 8 --speed 0.5 \
+  --policy-process --compile reduce-overhead --async --blend-steps 4 --noise-seed 0 \
+  --smooth-hz 2
 
 # or a websocket policy server
 .venv/bin/python -m real_robot.runner --backend piper --config real_robot/configs/piper_1.json \
@@ -123,6 +124,13 @@ Flags for the LeRobot policy command:
   Replanning less often (every 15-25 steps) was worse (0.55-0.61 deg): each
   chunk carries its own wiggle. `--ensemble-steps N` (average the plans of the
   last N steps) is available but didn't help on top of the fixed seed.
+- `--smooth-hz 2`: a background thread sends commands at 100 Hz
+  (`--stream-hz`), each following the latest target through a critically
+  damped filter (`real_robot/smoothing.py`). Sent one per step (15 Hz), the
+  firmware sped up and slowed down for every target and each new plan added
+  a ~3 Hz pulse: the arm moved fast, stopped, moved fast. Adds ~0.16 s lag.
+- Start with the gripper closed (`make home` closes it). From an open
+  gripper the banana checkpoint pushed the shoulder down and curled up.
 - `--speed 0.5`: half the trained rate. At 1.0, the per-step safety limits
   clipped most steps on J2/J3 and the motion looked jolty.
 - `--speed` (up to 2) plays actions faster than the demos were recorded;

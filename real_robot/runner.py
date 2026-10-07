@@ -100,12 +100,16 @@ def preflight(robot: RobotBackend, cfg: RobotConfig, safety: SafetyFilter) -> li
 def run(robot: RobotBackend, policy, cfg: RobotConfig, *, instruction: str,
         live: bool, speed: float = 1.0, max_steps: int = 500,
         execute_steps: int | None = None, log_dir: str | None = None,
-        async_infer: bool = False, blend_steps: int = 0, ensemble_steps: int = 0) -> dict:
+        async_infer: bool = False, blend_steps: int = 0, ensemble_steps: int = 0,
+        smooth_hz: float = 0.0, stream_hz: float = 100.0) -> dict:
     """One episode. Always leaves the robot holding position.
 
     async_infer: compute the next chunk in a background thread while the
     current one executes (see _async_loop), instead of pausing for each.
     blend_steps, ensemble_steps (async only): smooth between chunks.
+    smooth_hz > 0: stream commands at stream_hz through a critically damped
+    filter with this cutoff (real_robot/smoothing.py) instead of sending one
+    per step. Dry-run streams too, into the log only.
     """
     safety = SafetyFilter(cfg)
     period = 1.0 / (cfg.control_hz * speed)
@@ -119,7 +123,20 @@ def run(robot: RobotBackend, policy, cfg: RobotConfig, *, instruction: str,
     q = robot.get_joint_state()
     safety.check_state(q)
     virtual_q = q.copy()  # dry-run: pretend commands are tracked exactly
+    stream_log: list = []
+    streamer = None
+    if smooth_hz > 0:
+        from .smoothing import SmoothStreamer
+
+        def send(y):
+            stream_log.append((time.time(), y))
+            if live:
+                robot.command_joints(y)
+        streamer = SmoothStreamer(send, cfg.joint_lower, cfg.joint_upper,
+                                  cutoff_hz=smooth_hz, rate_hz=stream_hz)
     policy.call(func_name="reset")
+    if streamer is not None:
+        streamer.start(np.clip(q, cfg.joint_lower, cfg.joint_upper))
     step = chunk_idx = 0
 
     def observe():
@@ -147,9 +164,12 @@ def run(robot: RobotBackend, policy, cfg: RobotConfig, *, instruction: str,
         current = robot.get_joint_state() if live else virtual_q
         target = sim_to_real(a_sim, cfg)
         cmd = safety.filter(target, current)
-        if live:
+        if streamer is not None:
+            streamer.check()
+            streamer.set_target(cmd)
+        elif live:
             robot.command_joints(cmd)
-        else:
+        if not live:
             virtual_q = cmd
         for k, v in (("t", time.time()), ("q_real", current),
                      ("target_real", target), ("cmd_real", cmd),
@@ -181,6 +201,8 @@ def run(robot: RobotBackend, policy, cfg: RobotConfig, *, instruction: str,
     except Exception as e:  # server down, camera died, SDK error...
         status = f"error: {type(e).__name__}: {e}"
     finally:
+        if streamer is not None:
+            streamer.stop()
         if live:
             robot.hold()
     first_images = first_images[0] if first_images else None
@@ -191,12 +213,15 @@ def run(robot: RobotBackend, policy, cfg: RobotConfig, *, instruction: str,
         "infer_ms_median": float(np.median(infer_ms)) if infer_ms else None,
         "infer_ms_max": float(np.max(infer_ms)) if infer_ms else None,
         "async": async_infer, **extra,
+        "smooth_hz": smooth_hz, "streamed_commands": len(stream_log),
         "safety": asdict(safety.stats),
     }
     if log_dir:
         os.makedirs(log_dir, exist_ok=True)
+        stream = ({"stream_t": np.asarray([t for t, _ in stream_log]),
+                   "stream_cmd": np.asarray([y for _, y in stream_log])} if stream_log else {})
         np.savez_compressed(os.path.join(log_dir, "trajectory.npz"),
-                            **{k: np.asarray(v) for k, v in log.items()})
+                            **{k: np.asarray(v) for k, v in log.items()}, **stream)
         if first_images is not None:
             np.savez_compressed(os.path.join(log_dir, "first_frame.npz"), **first_images)
         with open(os.path.join(log_dir, "summary.json"), "w") as f:
@@ -313,6 +338,10 @@ def main(argv=None) -> int:
     ap.add_argument("--ensemble-steps", type=int, default=0,
                     help="--async: average every chunk observed in the last N steps "
                          "for each step (temporal ensembling; try 20)")
+    ap.add_argument("--smooth-hz", type=float, default=0.0,
+                    help="stream commands at --stream-hz through a critically damped "
+                         "filter with this cutoff (try 2); 0 = one command per step")
+    ap.add_argument("--stream-hz", type=float, default=100.0)
     ap.add_argument("--blend-steps", type=int, default=0,
                     help="--async: crossfade from the old chunk to the new one over "
                          "this many steps instead of jumping (try 8)")
@@ -389,7 +418,8 @@ def main(argv=None) -> int:
                           live=args.live, speed=args.speed, max_steps=args.max_steps,
                           execute_steps=args.execute_steps, log_dir=log_dir,
                           async_infer=args.async_infer, blend_steps=args.blend_steps,
-                          ensemble_steps=args.ensemble_steps)
+                          ensemble_steps=args.ensemble_steps,
+                          smooth_hz=args.smooth_hz, stream_hz=args.stream_hz)
         finally:
             policy.close()
         print(json.dumps(summary, indent=2))
