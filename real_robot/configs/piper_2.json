@@ -1,7 +1,8 @@
 {
-  "_note": "Far arm (from the operator seat); the teleop leader. cam_wrist: USB port 1.2.",
+  "_note": "Far arm (from the operator seat); the teleop leader. cam_wrist: USB port 1.2. Only the verify --wiggle check has run on this arm, not the per-joint movement test, so it stays unverified for live policy runs.",
   "extends": "piper.json",
   "arms": {"arm": "can_piper2"},
+  "verified": false,
   "cameras": {
     "cam_high": "/dev/v4l/by-path/pci-0000:00:14.0-usb-0:5.2:1.0-video-index0",
     "cam_wrist": "/dev/v4l/by-path/pci-0000:00:14.0-usb-0:1.2:1.0-video-index0"
