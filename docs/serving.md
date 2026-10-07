@@ -69,7 +69,8 @@ Raw data from the runs above is committed in `scripts/serve_bench/data/`
   policy, a higher control rate), so scheduling policy can be measured end to end.
   The simulator predicts batching starts to matter around 6 robots with mixed
   chunk lengths, and 10 with uniform ones.
-- Async execution: the robot keeps moving while the next chunk is computed.
-  Then PAINT (arXiv:2606.19774), a flow-inversion start noise that smooths
-  chunk boundaries at about 2x inference cost.
+- Smoother chunk boundaries. The real-robot runner already executes
+  asynchronously (`real_robot.runner --async`: the arm keeps moving while the
+  next chunk is computed). PAINT (arXiv:2606.19774) would add a flow-inversion
+  start noise for smoother transitions, at about 2x inference cost.
 - Real robots: two Pipers sharing one server on the 3090.
