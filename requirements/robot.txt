@@ -1,0 +1,9 @@
+# Repo venv (.venv): real_robot code + tests. Built by: make robot-venv
+# pyorbbecsdk2 is installed separately with --no-deps (its numpy/opencv pins conflict).
+numpy==2.2.6
+opencv-python==5.0.0.93
+packaging==26.3
+piper-sdk==0.6.2
+python-can==4.6.1
+typing-extensions==4.16.0
+wrapt==1.17.3

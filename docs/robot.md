@@ -19,7 +19,7 @@ cameras + joints ──> real_robot.runner ──> policy (LeRobot in-process, o
 | Arms | firmware S-V1.8-3. **Close** arm (from the operator seat) = `can_piper1` = `configs/piper_1.json`; **far** arm = `can_piper2` = `configs/piper_2.json` |
 | CAN | one USB-CAN adapter per arm, named by adapter serial and brought up at 1 Mbit/s on boot by `real_robot/can_persist.sh` (installed; it also handles replugs) |
 | Cameras | three Orbbec Astra Pro Plus, 640x480 at 30 fps over plain UVC. All report serial `SN0001`, so configs address them **by USB port** (`/dev/v4l/by-path/...-usb-0:<port>:1.0-video-index0`). Keep each in its port: **5.2** = stationary high view (`cam_high`, shared by both arms), **9.2** = on the close arm, **1.2** = on the far arm |
-| Python | `~/research_vla/.venv`: `piper_sdk`, OpenCV, `pyorbbecsdk2` (repo code and tests). `~/lerobot_robot_piper/.venv`: LeRobot 0.4.4 + torch, for `--lerobot` policies. `~/openpi`: upstream openpi (`uv`) |
+| Python | `~/research_vla/.venv` (`make robot-venv`, `requirements/robot.txt`): `piper_sdk`, OpenCV, `pyorbbecsdk2`, for the repo code and tests. `~/lerobot_robot_piper/.venv` (`requirements/lerobot.txt`, an exact freeze: LeRobot 0.4.4, torch 2.10, `transformers` pinned to a git commit for pi0.5): for `--lerobot` policies. `~/openpi`: upstream openpi (`uv`) |
 
 Configs: `configs/piper.json` holds what both arms share (limits, rate
 limits, gripper stroke, speed), and each arm file `extends` it with its CAN

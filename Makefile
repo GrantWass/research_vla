@@ -1,8 +1,9 @@
-.PHONY: help test test-verbose setup check clean doctor inventory policies install-adapter setup-policy dry-run eval smoke smoke-all robot-check teleop
+.PHONY: help test test-verbose setup check clean doctor inventory policies install-adapter setup-policy dry-run eval smoke smoke-all robot-venv robot-check teleop
 .DEFAULT: help
 
 # Repo venv when present (robot deps), else system python.
 PY ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python3)
+UV ?= $(or $(shell command -v uv),$(HOME)/.local/bin/uv)
 
 # Sim: make dry-run POLICY=turbovla TASK=stack_bowls
 POLICY ?= pi05
@@ -17,6 +18,7 @@ help:
 	@echo "make setup | check       Clone upstream repos at pinned commits | verify the pins"
 	@echo ""
 	@echo "Robot (docs/robot.md)"
+	@echo "make robot-venv          Create .venv from requirements/robot.txt"
 	@echo "make robot-check [ARM=1|2]  Read-only joint/camera check -> verify/piper_ARM/"
 	@echo "make teleop [SECONDS=300]   Far arm leads, close arm follows"
 	@echo ""
@@ -44,6 +46,11 @@ check:
 	bash setup.sh --check
 
 # ---- robot
+
+robot-venv:
+	$(UV) venv --python 3.10 .venv
+	$(UV) pip install --python .venv/bin/python -r requirements/robot.txt
+	$(UV) pip install --python .venv/bin/python --no-deps pyorbbecsdk2==2.1.2
 
 robot-check:
 	$(PY) -m real_robot.verify --stage robot --config real_robot/configs/piper_$(ARM).json --out verify/piper_$(ARM)
