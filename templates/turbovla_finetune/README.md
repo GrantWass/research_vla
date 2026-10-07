@@ -2,7 +2,7 @@
 
 Trains a RoboDojo-native TurboVLA checkpoint (dual_x5, 14-D state/action,
 3 views) that `scripts/run_eval.sh --policy turbovla` can evaluate. Run the
-training steps on the GPU box (Ubuntu 22.04 + CUDA); everything else is
+training steps on the GPU machine (Ubuntu 22.04 + CUDA); everything else is
 Mac-safe.
 
 ## Why this works without a data rewrite
@@ -36,7 +36,7 @@ declares the `robodojo_arx_x5` mix + robot type, and the StarVLA registry
 auto-discovers it from `turbovla/experiments/robodojo/`. Use the `*_ee`
 format — plain `lerobot_v3.0` is joint-only (no gripper values).
 
-## Recipe (GPU box)
+## Recipe
 
 ```bash
 # 0. Checkouts + overlay
@@ -80,7 +80,7 @@ bash ../scripts/run_eval.sh --policy openvla  --task stack_bowls --mode smoke --
 
 | File | Role |
 |---|---|
-| `train.sh` | Env-var training launcher (discovers tasks, checks assets, `accelerate launch` of the upstream EMA recipe). GPU box only. |
+| `train.sh` | Env-var training launcher (discovers tasks, checks assets, `accelerate launch` of the upstream EMA recipe). GPU only. |
 | `data_registry/data_config.py` | `robodojo_arx_x5` mix + robot type (same modality keys/transforms as the paper's `robotwin50`). Installed into `turbovla/experiments/robodojo/`. |
 | `configs/robodojo.yaml` | Training config: 14-D/14-D, horizon 50, 3 views @224, L1 + EMA + DeepSpeed ZeRO-2, 55k steps. |
 | `compute_stats.py` | Proprio mean/std + action min/max over training frames → stats JSON for the adapter. |

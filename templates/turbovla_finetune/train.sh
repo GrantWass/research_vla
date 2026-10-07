@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# TurboVLA-on-RoboDojo training launcher. Run on the GPU box from turbovla/ root:
+# TurboVLA-on-RoboDojo training launcher. Run on the GPU machine from turbovla/ root:
 #   cd turbovla && bash ../templates/turbovla_finetune/train.sh
 #
 # All settings come from env vars. Minimal run (4x RTX 4090 paper recipe):

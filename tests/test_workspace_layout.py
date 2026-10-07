@@ -57,22 +57,23 @@ class TestWorkspaceLayout(unittest.TestCase):
         ]:
             self.assertPathExists(p(rel))
 
-    def test_setup_guide_exists(self):
-        self.assertPathExists(p("OPENVLA_ROBODOJO_SETUP.md"))
+    def test_docs_exist(self):
+        for rel in ["docs/robot.md", "docs/sim.md", "docs/serving.md", "docs/findings.md"]:
+            self.assertPathExists(p(rel))
 
     def test_readme_maps_workspace(self):
         # The root README is the entry point; it must exist and point at
-        # every owned area so new teammates find tests/templates/docs.
+        # every owned area so new teammates find the code and docs.
         path = p("README.md")
         self.assertPathExists(path)
         with open(path) as f:
             src = f.read()
         for keyword in [
+            "real_robot/",
             "tests/",
-            "templates/robodojo_task/",
-            "templates/xpolicylab_policy/",
-            "templates/openvla_finetune/",
-            "OPENVLA_ROBODOJO_SETUP.md",
+            "templates/",
+            "docs/robot.md",
+            "docs/sim.md",
             "CONTRIBUTING.md",
             "setup.sh",
             "make test",

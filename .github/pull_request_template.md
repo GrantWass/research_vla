@@ -4,17 +4,17 @@
 
 ## Type
 
-<!-- tests / task template / policy template / finetune / docs / chore -->
+<!-- robot / sim / policies / serving / templates / tests / docs / chore -->
 
 ## Test plan
 
 - [ ] `make test` passes locally
 - [ ] CI smoke run linked: <!-- paste run URL -->
-- [ ] GPU-box validation (if applicable): <!-- e.g. robodojo.sh smoke --only <task> -->
+- [ ] Sim or robot validation (if applicable): <!-- e.g. make smoke POLICY=pi05, or a dry run on the arm -->
 
 ## Checklist
 
 - [ ] New/changed template covered by `tests/test_templates.py`
 - [ ] No secrets, weights, or generated artifacts in the diff
-- [ ] Docs updated (`OPENVLA_ROBODOJO_SETUP.md` or template README)
+- [ ] Docs updated (`docs/` or template README)
 - [ ] Fine-tune/policy runs record checkpoint location + dataset revision (if applicable)

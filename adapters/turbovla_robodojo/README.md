@@ -10,19 +10,19 @@ upstream `RoboDojo/` tree is never edited by hand.
 
 ```bash
 bash setup.sh                                          # pins openvla/, turbovla/, RoboDojo/
-bash scripts/setup_policy.sh turbovla --robotwin-smoke # GPU box: adapter + env + ckpts + DINOv3/BERT
+bash scripts/setup_policy.sh turbovla --robotwin-smoke # adapter + env + ckpts + DINOv3/BERT
 ```
 
 `setup_policy.sh` runs `install_adapter.sh` and this adapter's `install.sh`,
 downloads DINOv3 ViT-L (gated: accept the license on Hugging Face and save a
-read token first, see `GPU_BOX_SETUP.md` §4) and BERT. With `--robotwin-smoke`
+read token first, see `docs/sim.md`) and BERT. With `--robotwin-smoke`
 it also installs `deploy.robotwin_smoke.yml` as the adapter's `deploy.yml`.
 
 ## Run (model swap is one flag)
 
 ```bash
 bash scripts/run_eval.sh --policy turbovla --task stack_bowls --dry-run   # Mac-safe
-bash scripts/run_eval.sh --policy turbovla --task stack_bowls --mode smoke --fail-fast  # GPU box
+bash scripts/run_eval.sh --policy turbovla --task stack_bowls --mode smoke --fail-fast
 bash scripts/run_eval.sh --policy openvla  --task stack_bowls --dry-run   # back to OpenVLA
 ```
 
@@ -59,4 +59,4 @@ can never silently corrupt metrics.
 | `deploy.robotwin_smoke.yml` | Sim-wiring smoke config for the released RoboTwin ckpt (`@SHARED@` filled in by `setup_policy.sh --robotwin-smoke`). |
 | `deploy.py` | Env-side episode loop (`eval_one_episode[_batch]`), same as upstream `demo_policy`. |
 | `eval.sh`, `setup_eval_policy_server.sh`, `setup_eval_env_client.sh` | Standard XPolicyLab launchers (same protocol as `SmolVLA`/`OpenVLA_OFT`). |
-| `install.sh` | GPU-box env: `turbovla-robodojo` conda env, torch cu121, editable installs, `hf download H-EmbodVis/TurboVLA`. |
+| `install.sh` | Env: `turbovla-robodojo` conda env, torch cu121, editable installs, `hf download H-EmbodVis/TurboVLA`. |

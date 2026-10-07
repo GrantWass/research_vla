@@ -1,42 +1,59 @@
-.PHONY: help real-preflight test test-verbose setup check clean doctor inventory dry-run eval smoke smoke-all policies install-adapter setup-policy lowvram finetune-help
+.PHONY: help test test-verbose setup check clean doctor inventory policies install-adapter setup-policy dry-run eval smoke smoke-all lowvram robot-check teleop
 .DEFAULT: help
 
-# Model selector: make dry-run POLICY=turbovla TASK=stack_bowls
+# Repo venv when present (robot deps), else system python.
+PY ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python3)
+
+# Sim: make dry-run POLICY=turbovla TASK=stack_bowls
 POLICY ?= openvla
 TASK ?=
 CKPT ?=
 MODE ?= eval
+# Robot: make robot-check ARM=2
+ARM ?= 1
 
 help:
-	@echo "make test          Run CPU-only smoke suite (system python, no GPU/Isaac)"
-	@echo "make test-verbose  Same, verbose output"
-	@echo "make setup         Clone upstream repos at pinned commits (see setup.sh)"
-	@echo "make check         Verify checkouts match pins (no network writes)"
-	@echo "make doctor        RoboDojo health check (skips Isaac/conda/policy: Mac-safe)"
-	@echo "make inventory     List runnable RoboDojo tasks (no Isaac)"
-	@echo "make policies      List registered VLA policies (policies/*.conf)"
-	@echo "make dry-run POLICY=<p> TASK=<task>  Resolve one eval command without launching sim"
-	@echo "make eval POLICY=<p> TASK=<task> [CKPT=<c>]     Run one eval (GPU box)"
-	@echo "make smoke POLICY=<p> [TASK=<t>] [CKPT=<c>]     Run smoke (GPU box)"
-	@echo "make install-adapter POLICY=<p>  Copy this-repo adapter into XPolicyLab"
-	@echo "make setup-policy POLICY=<p>     Policy env + ckpt on the GPU box (scripts/setup_policy.sh)"
-	@echo "make lowvram ARGS=apply|revert|status  16 GB GPU profile (scripts/lowvram.sh)"
-	@echo "make smoke-all [TASK=<t>]         Sim smoke for every policy, pass/fail table (GPU box)"
-	@echo "make finetune-help Show OpenVLA LoRA fine-tune template usage"
-	@echo "make real-preflight [ARGS=...]  Real-robot preflight (REAL_ROBOT.md)"
-	@echo "make clean         Remove pyc/pycache files"
+	@echo "make test                Unit tests (CPU only; no GPU, Isaac or robot)"
+	@echo "make setup | check       Clone upstream repos at pinned commits | verify the pins"
+	@echo ""
+	@echo "Robot (docs/robot.md)"
+	@echo "make robot-check [ARM=1|2]  Read-only joint/camera check -> verify/piper_ARM/"
+	@echo "make teleop [SECONDS=300]   Far arm leads, close arm follows"
+	@echo ""
+	@echo "Sim (docs/sim.md)"
+	@echo "make policies            List registered policies (policies/*.conf)"
+	@echo "make setup-policy POLICY=<p>  Policy env + checkpoint"
+	@echo "make dry-run POLICY=<p> TASK=<t> [CKPT=<c>]  Resolve an eval command, no sim"
+	@echo "make eval POLICY=<p> TASK=<t> [CKPT=<c>]     One eval"
+	@echo "make smoke POLICY=<p> [TASK=<t>]             One smoke episode"
+	@echo "make smoke-all [TASK=<t>]                    Smoke every policy, pass/fail table"
+	@echo "make doctor | inventory  RoboDojo health check | runnable tasks"
+	@echo "make install-adapter POLICY=<p>  Copy our adapter into XPolicyLab"
+	@echo "make lowvram ARGS=apply|revert|status  Low-VRAM sim profile"
+	@echo "make clean               Remove pyc/pycache files"
 
 test:
-	python3 -m unittest discover -s tests
+	$(PY) -m unittest discover -s tests
 
 test-verbose:
-	python3 -m unittest discover -s tests -v
+	$(PY) -m unittest discover -s tests -v
 
 setup:
 	bash setup.sh
 
 check:
 	bash setup.sh --check
+
+# ---- robot
+
+robot-check:
+	$(PY) -m real_robot.verify --stage robot --config real_robot/configs/piper_$(ARM).json --out verify/piper_$(ARM)
+
+SECONDS ?= 300
+teleop:
+	$(PY) -m real_robot.teleop --leader can_piper2 --follower-config real_robot/configs/piper_1.json --seconds $(SECONDS)
+
+# ---- sim
 
 doctor:
 	cd RoboDojo && bash scripts/robodojo.sh doctor --skip-isaac --skip-conda --skip-policy
@@ -53,6 +70,12 @@ ifndef POLICY
 endif
 	bash scripts/install_adapter.sh $(POLICY)
 
+setup-policy:
+ifndef POLICY
+	$(error Usage: make setup-policy POLICY=<demo|openvla|pi05|turbovla>)
+endif
+	bash scripts/setup_policy.sh $(POLICY) $(ARGS)
+
 dry-run:
 ifndef TASK
 	$(error Usage: make dry-run POLICY=<policy> TASK=<task_name>  (try: make inventory))
@@ -68,7 +91,7 @@ endif
 smoke:
 	bash scripts/run_eval.sh --policy $(POLICY) $(if $(TASK),--task $(TASK)) $(if $(CKPT),--ckpt $(CKPT)) --mode smoke --fail-fast
 
-# Every registered model through Isaac Sim once; keeps going past failures.
+# Every registered policy through Isaac Sim once; keeps going past failures.
 SMOKE_POLICIES ?= demo openvla pi05 turbovla
 smoke-all:
 	@task=$${TASK:-stack_bowls}; fail=0; rows=""; \
@@ -79,29 +102,9 @@ smoke-all:
 	done; \
 	printf "smoke-all ($$task):$$rows\n"; exit $$fail
 
-setup-policy:
-ifndef POLICY
-	$(error Usage: make setup-policy POLICY=<demo|openvla|pi05|turbovla>)
-endif
-	bash scripts/setup_policy.sh $(POLICY) $(ARGS)
-
 lowvram:
 	bash scripts/lowvram.sh $(or $(ARGS),status)
 
-finetune-help:
-	@echo "OpenVLA LoRA:   see templates/openvla_finetune/README.md"
-	@echo "  cd openvla && bash ../templates/openvla_finetune/finetune_lora.sh"
-	@echo "TurboVLA:       see templates/turbovla_finetune/README.md"
-	@echo "  bash scripts/install_turbovla_training.sh"
-	@echo "  cd turbovla && ROBODOJO_DATA_ROOT=/data/... bash ../templates/turbovla_finetune/train.sh"
-	@echo "pi0.5:          upstream adapter (GPU box, uv-managed, no template)"
-	@echo "  cd RoboDojo/XPolicyLab/policy/Pi_05 && bash install.sh"
-	@echo "  bash process_data.sh RoboDojo cotrain arx_x5 joint"
-	@echo "  bash train.sh RoboDojo cotrain arx_x5 joint 0 0"
-
 clean:
-	find . -name "*.pyc" -not -path "./openvla/*" -not -path "./RoboDojo/*" -not -path "./turbovla/*" | xargs rm -f 2>/dev/null; \
-	find tests templates policies adapters scripts -name "__pycache__" | xargs rm -rf 2>/dev/null; true
-
-real-preflight:
-	python3 -m real_robot.runner --preflight-only $(ARGS)
+	find . -name "*.pyc" -not -path "./openvla/*" -not -path "./RoboDojo/*" -not -path "./turbovla/*" -not -path "./.venv/*" | xargs rm -f 2>/dev/null; \
+	find tests templates policies adapters scripts real_robot -name "__pycache__" | xargs rm -rf 2>/dev/null; true

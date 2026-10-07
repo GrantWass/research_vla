@@ -6,7 +6,7 @@ come from the dataloader; for inference this script computes the same
 quantities over the training frames and writes the JSON the adapter's
 `stats_path` points at.
 
-GPU-box usage (needs the `lerobot` package from the training env):
+Usage (needs the `lerobot` package from the training env):
   python templates/turbovla_finetune/compute_stats.py \
     --data-root data/robodojo_tasks_joint \
     --out /runs/turbovla_robodojo_arx_x5_55k/robodojo_stats.json

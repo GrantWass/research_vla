@@ -1,45 +1,27 @@
-# Contributing to research_vla
+# Contributing
 
-This repo is a thin workspace over upstream clones (`openvla/`, `RoboDojo/` — both
-git-ignored). We own: `tests/`, `templates/`, docs, `setup.sh`, `Makefile`, CI.
+## Conventions
 
-## Setup
+- Branches: `<user>/<short-description>`. Commits: `[Scope] type: description`.
+  Scopes: `Robot | Sim | Policies | Serving | Templates | Tests | Docs | chore`.
+  Types: `feat | fix | update | docs | chore`.
+- Upstream code (`openvla/`, `turbovla/`, `RoboDojo/`) is never committed. Change it
+  through a file in `patches/` applied by a setup script, or PR it upstream.
+- Never commit weights, datasets, eval outputs, run logs (`real_robot_logs/`,
+  `verify/`) or secrets (`.env`, HF tokens). `.gitignore` and pre-commit's
+  1 MB limit catch most of these.
+- Record the checkpoint location and dataset revision of any training run in
+  its PR.
 
-```bash
-bash setup.sh   # clones at pinned commits + inits XPolicyLab submodule
-make test       # must pass before every PR
-```
+## Where things go
 
-## Branches & commits
-
-- Branches: `<user>/<short-description>`, e.g. `sam/task-wipe-table`.
-- Commits: `[Scope] type: description` — scopes `Tests | Templates | Task | Policy | Docs | scripts | fix | chore`;
-  types `feat | fix | update | docs | chore`. (Matches the RoboDojo convention.)
-- Never commit: upstream checkouts, `Assets/`, `eval_result/`, `checkpoints/`,
-  weights (`*.pt/*.safetensors/*.hdf5`), `.hf_token`/`.env`, `wandb/`.
-  Pre-commit blocks large files; `.gitignore` covers the rest.
-
-## What goes where
-
-- **New benchmark task** → copy `templates/robodojo_task/`, follow its README checklist.
-  Upstream task code belongs in the RoboDojo checkout, not committed here —
-  PR the task to `RoboDojo-Benchmark/RoboDojo` and note the commit here.
-- **New policy adapter** → copy `templates/xpolicylab_policy/my_policy/`, same deal
-  (PR to `XPolicyLab/XPolicyLab`).
-- **Fine-tune runs** → `templates/openvla_finetune/`; checkpoints stay on
-  HuggingFace Hub / shared storage, never in git. Record run dirs + dataset
-  revisions in the PR description so teammates can reproduce.
-- **Workspace changes** (tests, templates, docs, scripts) → PR here with the
-  checklist below filled in.
+- A fact about the rig, or a procedure: `docs/robot.md` or `docs/sim.md`.
+- A result or lesson: `docs/findings.md`, short, with the evidence.
+- New sim policy: `policies/<name>.conf` (+ `adapters/` if needed), see `docs/sim.md`.
+- New task or adapter for upstream: start from `templates/`.
 
 ## PR checklist
 
-- [ ] `make test` passes (paste output or link CI run)
-- [ ] New/changed template covered by `tests/test_templates.py`
-- [ ] No secrets, weights, or generated artifacts in the diff (`git status` clean of them)
-- [ ] Docs updated if behavior changed (`OPENVLA_ROBODOJO_SETUP.md` or template README)
-
-## Secrets
-
-- HuggingFace: `huggingface-cli login` or `~/.hf_token` (never in-repo).
-- W&B entity/project passed as env vars to `finetune_lora.sh`, never hardcoded.
+- [ ] `make test` passes
+- [ ] No weights, logs or secrets in the diff
+- [ ] Docs updated if behavior changed

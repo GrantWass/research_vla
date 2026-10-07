@@ -33,5 +33,5 @@ cp templates/robodojo_task/my_task.py  RoboDojo/task/RoboDojo/tasks/${TASK}.py
 - [ ] Validate Isaac-free first: `python scripts/internal/task_inventory.py --format json --check`
       then `bash scripts/robodojo.sh smoke --policy-dir XPolicyLab/policy/demo_policy
       --ckpt demo --policy-env demo-env --only <task> --dry-run`.
-      Runtime acceptance needs the GPU box: same `smoke` without `--dry-run`,
+      Runtime acceptance needs the GPU machine: same `smoke` without `--dry-run`,
       exit `0` **and** `_result.json` with `eval_time >= 1`.

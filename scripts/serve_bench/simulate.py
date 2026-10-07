@@ -1,6 +1,6 @@
 """Tiny closed-loop serving simulator (stdlib only, Mac-safe).
 
-Replays what we measured on the GPU box: robots eat one action per control
+Replays what we measured on the GPU machine: robots eat one action per control
 step, the server answers in batches that take as long as our real timing
 logs say. Fault knobs (dropped messages, extra delay) are the DRTC ideas:
 newest-plan-wins merging and cooldowns only help if we can show the harm.

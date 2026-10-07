@@ -1,8 +1,8 @@
-"""GPU-box tooling: setup_policy.sh, lowvram.sh, patches/, smoke configs.
+"""Setup tooling: setup_policy.sh, lowvram.sh, patches/, smoke configs.
 
 Mac-safe (stdlib only). The patch checks run `git apply --check` against the
 pinned upstream checkouts, so an upstream bump that breaks a patch fails here
-instead of on someone's GPU box.
+instead of on a GPU machine.
 """
 
 import os
@@ -22,7 +22,7 @@ TURBOVLA = os.path.join(ROOT, "turbovla")
 # patch file -> repo it applies to. Every .patch must be listed here
 # (test_every_patch_has_a_target); a target whose checkout is absent on this
 # machine is skipped rather than failed, since the turbovla training repo is
-# only cloned on the GPU box.
+# only cloned on the GPU machine.
 PATCH_TARGETS = {
     "robodojo_lowvram_sim.patch": ROBODOJO,
     "xpolicylab_openvla_oft_lowvram.patch": XPL,

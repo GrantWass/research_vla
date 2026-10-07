@@ -179,7 +179,7 @@ def main() -> None:
         if missing:
             sys.exit(
                 f"[make_task_dataset] {len(missing)} source files missing, e.g. {missing[0]}\n"
-                "  pull them first (git lfs pull --include=...) — see GPU_BOX_SETUP.md"
+                "  pull them first (git lfs pull --include=...) — see docs/sim.md"
             )
         for rel in sorted(needed):
             target = dest / rel

@@ -1,13 +1,13 @@
 #!/bin/bash
-# 16 GB GPU profile: fit Isaac Sim + a 3-7B policy server on one card.
+# Low-VRAM profile: fit Isaac Sim + a 3-7B policy server on a card under ~24 GB.
 #
 #   bash scripts/lowvram.sh apply    # patch upstream checkouts + write .lowvram.env
 #   bash scripts/lowvram.sh revert   # undo both
 #   bash scripts/lowvram.sh status
 #
-# What it changes (measured on an RTX 4070 Ti SUPER, see GPU_BOX_SETUP.md):
-#   - RoboDojo env_cfg/sim/sim_config.yml: performance render mode, no DLAA /
-#     reflections / GI / translucency / denoiser, low texture budget, PhysX GPU
+# What it changes (see docs/sim.md):
+#   - RoboDojo env_cfg/sim/sim_config.yml: performance render mode, DLAA kept,
+#     no reflections / GI / translucency / denoiser, low texture budget, PhysX GPU
 #     buffers sized for the num_envs=1 eval (Isaac Sim 7.7 GB -> 5.7 GB).
 #   - XPolicyLab OpenVLA_OFT: load_in_4bit (LLM only) + two upstream loader
 #     fixes needed for quantized FiLM checkpoints (bf16 7B does not fit).

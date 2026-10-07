@@ -1,5 +1,5 @@
 #!/bin/bash
-# Sim eval battery for serving strategies (GPU box). Replaces the throwaway
+# Sim eval battery for serving strategies. Replaces the throwaway
 # /tmp/sweep*.sh drivers. Each run temporarily sets num_envs, runs one pi0.5
 # eval, records wall time + peak VRAM + the exact result directory it created
 # (never "newest directory": that misread two runs on 2026-09-30), and

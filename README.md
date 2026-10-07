@@ -1,74 +1,40 @@
 # research_vla
 
-Workspace for Vision-Language-Action robot research: **OpenVLA**,
-**TurboVLA**, and **pi0.5** (the policies) evaluated in **RoboDojo** (the benchmark, built
-on NVIDIA Isaac Sim + Isaac Lab). Swapping models is one flag:
-`bash scripts/run_eval.sh --policy pi05 --task stack_bowls --dry-run`.
-This repo is a thin layer over upstream clones — we own the policy registry,
-adapters, tests, templates, and docs; the simulators and models live upstream.
+Vision-Language-Action policies (pi0.5, OpenVLA, TurboVLA), evaluated in
+simulation (RoboDojo on Isaac Sim) and run on two real AgileX Piper arms. This
+repo is a thin layer over upstream checkouts. We own the policy registry,
+adapters, the real-robot code, serving experiments, tests and docs.
 
-> Hardware note: full simulation needs a Linux box with an NVIDIA RTX GPU
-> (verified: Ubuntu 24.04, **driver 580**, 32 GB RAM, 16 GB VRAM with
-> `scripts/lowvram.sh`). Bring-up guide: `GPU_BOX_SETUP.md`. Everything marked
-> "Mac-safe" below runs on Apple Silicon with system Python and no GPU.
+Everything runs on one machine: the Alienware workstation (Ubuntu 22.04,
+RTX 3090 24 GB) that drives the arms.
 
-## What everything is
+## Docs
 
-| Path | What it does |
+| | |
 |---|---|
-| `openvla/` | Upstream OpenVLA clone (git-ignored). Training, LoRA fine-tune (`vla-scripts/`), REST deploy server, LIBERO/Bridge eval scripts. Pinned by `setup.sh`. |
-| `turbovla/` | Upstream TurboVLA clone (git-ignored). 0.2B direct V+L→A VLA (32 Hz, <1 GB VRAM on RTX 4090). Training/eval in `turbovla/` + `experiments/`; released ckpts `H-EmbodVis/TurboVLA`. Pinned by `setup.sh`. |
-| `RoboDojo/` | Upstream benchmark clone (git-ignored). 54 runnable sim tasks, sim stack (`env/`), configs (`env_cfg/`), eval entry `scripts/robodojo.sh`, policy adapters in `XPolicyLab/` (incl. `OpenVLA_OFT`, `demo_policy`). Pinned by `setup.sh`. |
-| `policies/` | Model registry: one `*.conf` per VLA (`openvla`, `turbovla`, `pi05`, `demo`). `scripts/run_eval.sh --policy <name>` resolves adapter dir, policy env, ckpt, action type. See `POLICIES_ROBODOJO.md`. |
-| `adapters/turbovla_robodojo/` | This-repo XPolicyLab adapter serving TurboVLA in RoboDojo. Install: `bash scripts/install_adapter.sh turbovla`. |
-| `tests/` | CPU-only smoke suite (stdlib `unittest`, Mac-safe). Layout checks, task-inventory validation (54 runnable, names match, real rewards), eval dry-run wiring, policy contract, template self-checks. Run: `make test`. |
-| `templates/robodojo_task/` | Skeleton for a new benchmark task (`my_task.yml` + `my_task.py` + checklist). Copy into the RoboDojo checkout, rename, PR upstream. |
-| `templates/xpolicylab_policy/` | Skeleton for a new policy adapter (`eval.sh`, `deploy.yml`, server/client launchers, `model.py`, eval loop, `install.sh`). Mirrors `demo_policy`. |
-| `templates/openvla_finetune/` | LoRA fine-tune launcher (`finetune_lora.sh`, env-var configured) + checklist (routes, dataset registration, data-collection rules, sanity checks). GPU box only. |
-| `templates/turbovla_finetune/` | TurboVLA-on-RoboDojo training: env-var launcher (`train.sh`), registry overlay (`data_registry/`), recipe (`configs/robodojo.yaml`), stats (`compute_stats.py`), eval-ready `deploy.robodojo.yml`. GPU box only. |
-| `GPU_BOX_SETUP.md` | **Start here on a GPU box.** Fresh Linux → driver 580 → Isaac Sim → all four policies → `make smoke-all`, with measured VRAM, the verified-status table, and troubleshooting for every failure hit so far. |
-| `scripts/setup_policy.sh` | One idempotent command per policy (`openvla`, `pi05`, `turbovla`, `demo`): env, checkpoint, and the fixes the upstream installers need. |
-| `scripts/install_turbovla_deploy.sh` | Points the TurboVLA adapter at a checkpoint we fine-tuned (renders `templates/turbovla_finetune/deploy.robodojo.yml`), instead of the released RoboTwin weights. |
-| `scripts/diag_turbovla_actions.py` | Scores TurboVLA's predicted actions against ground truth without the simulator. Separates "the model never learned the task" from "the model learned it but the deployment path is wrong" after a 0/N sim result. |
-| `scripts/diag_turbovla_step_sweep.py` | Scores the same windows at each saved training step, to tell "the fine-tune did nothing" from "it is learning but did not get far enough". |
-| `scripts/diag_openvla_obs.py` | Offline check that a policy's actions actually respond to the cameras: scores predicted vs ground-truth actions on real episodes under observation variants (wrists swapped, cameras blacked out). No simulator needed. |
-| `scripts/lowvram.sh` | `apply`/`revert`/`status` for the 16 GB GPU profile (cheaper sim rendering and PhysX buffers, 4-bit OpenVLA, JAX/PyTorch memory env). |
-| `patches/` | Upstream fixes applied by the two scripts above; `make test` checks they still apply to the pinned checkouts. |
-| `OPENVLA_ROBODOJO_SETUP.md` | Full guide: what was pulled, why RoboDojo, Mac-verified steps, Linux GPU setup, every eval command, troubleshooting. |
-| `POLICIES_ROBODOJO.md` | Multi-model eval: registry, per-model setup, all `run_eval.sh` commands, adding the next model. |
-| `POLICIES_ROBODOJO_SIMPLE.md` | Plain-language overview: the course, the brains (TurboVLA + pi0.5), and the glue between them. |
-| `WEEKLY_REPORT.md` | Weekly write-up: results, the input-mapping verification, why each policy scores what it does, the fine-tune setup, the 16 GB adaptations and next steps. |
-| `PROGRESS_REPORT.md` | GRA status: wiring evidence, results skeleton, blockers/next steps. |
-| `REMOTE_ACCESS.md` | SSH into the Windows box from any network (OpenSSH server, key auth, Tailscale, troubleshooting). |
-| `CONTRIBUTING.md` | Branch/commit conventions, where each kind of work belongs, secrets handling, PR checklist. |
-| `setup.sh` | Reproduces the upstream checkouts at pinned commits + inits the XPolicyLab submodule. `--check` verifies pins without network writes. |
-| `Makefile` | Shortcuts: `test`, `setup`, `check`, `doctor`, `inventory`, `dry-run TASK=<t>`, `setup-policy POLICY=<p>`, `lowvram`, `smoke-all`, `finetune-help`, `clean`. |
-| `.github/workflows/smoke.yml` | CI: restores checkouts via `setup.sh`, runs the smoke suite on every push/PR. |
-| `.github/pull_request_template.md` | PR front-matter: summary, test plan, checklist. |
-| `.pre-commit-config.yaml` | Whitespace/YAML hygiene, ruff on `tests/`+`templates/`+`adapters/`, blocks >1 MB files (no weights in git). |
+| [docs/robot.md](docs/robot.md) | The Piper rig: hardware map, safety, teleop, running policies, next steps |
+| [docs/sim.md](docs/sim.md) | RoboDojo setup, the policy registry, evals, fine-tuning, troubleshooting |
+| [docs/serving.md](docs/serving.md) | Serving many robots from one policy server: strategies, results, tools |
+| [docs/findings.md](docs/findings.md) | What we learned and the evidence behind it |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Conventions and PR checklist |
+
+## Layout
+
+| Path | What |
+|---|---|
+| `real_robot/` | Piper backend, cameras, safety filter, control loop, teleop, checks (`docs/robot.md`) |
+| `policies/` | One `*.conf` per sim policy; `scripts/run_eval.sh --policy <name>` resolves it |
+| `adapters/turbovla_robodojo/` | Our XPolicyLab adapter for TurboVLA |
+| `patches/` | Fixes to the upstream checkouts, applied by the setup scripts; `make test` checks they still apply |
+| `scripts/` | `setup_policy.sh`, `run_eval.sh`, `install_*.sh`, `lowvram.sh`, `serve_bench/` |
+| `templates/` | Skeletons: new RoboDojo task, new policy adapter, OpenVLA LoRA and TurboVLA fine-tunes |
+| `tests/` | CPU-only `unittest` suite; no GPU, Isaac or robot needed |
+| `openvla/`, `turbovla/`, `RoboDojo/` | Upstream checkouts (git-ignored), recreated at pinned commits by `setup.sh` |
 
 ## Quickstart
 
 ```bash
-bash setup.sh          # clone upstream repos at pinned commits (once per machine)
-bash scripts/install_adapter.sh turbovla   # install this-repo TurboVLA adapter (once)
-make test              # smoke suite — must pass before every PR
-make check             # verify checkouts still match pins
-make policies          # list registered VLA models
-make doctor            # RoboDojo health check (Mac-safe: skips Isaac/conda/policy)
-make inventory         # list the 54 runnable tasks
-make dry-run POLICY=turbovla TASK=stack_bowls   # resolve an eval command without launching sim
+bash setup.sh        # upstream checkouts at pinned commits
+make test            # must pass before every PR
+make help            # every shortcut
 ```
-
-## Common workflows
-
-- **Set up a GPU box:** follow `GPU_BOX_SETUP.md`; verify with `make smoke-all`.
-- **Evaluate a policy (GPU box):** `bash scripts/run_eval.sh --policy pi05 --task stack_bowls --mode smoke --fail-fast` (swap `pi05`→`turbovla`→`openvla` to compare models) — full command reference in `POLICIES_ROBODOJO.md`; harness details in `OPENVLA_ROBODOJO_SETUP.md` §5.
-- **New benchmark task:** copy `templates/robodojo_task/`, follow its README, validate with `make test` + dry-run, PR the task to `RoboDojo-Benchmark/RoboDojo`.
-- **New policy adapter:** copy `templates/xpolicylab_policy/my_policy/`, fill in the TODOs, PR to `XPolicyLab/XPolicyLab`.
-- **Fine-tune TurboVLA on one task (GPU box):** `GPU_BOX_SETUP.md` §7 — carve the task's data, compute stats, train from the released checkpoint, then `scripts/install_turbovla_deploy.sh` + `run_eval.sh`.
-- **Fine-tune OpenVLA (GPU box):** follow `templates/openvla_finetune/README.md`, then `cd openvla && bash ../templates/openvla_finetune/finetune_lora.sh`.
-
-## Contributing
-
-Read `CONTRIBUTING.md`. TL;DR: `make test` before every PR, never commit checkouts/weights/secrets (`pre-commit` enforces the large-file part), record checkpoint locations + dataset revisions for any training run.

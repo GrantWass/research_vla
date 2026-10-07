@@ -12,7 +12,7 @@ bash install.sh
 cd ../../..   # back to RoboDojo root
 bash scripts/robodojo.sh eval --policy-dir XPolicyLab/policy/<YourPolicy> \
   --task stack_bowls --ckpt demo --policy-env <your-env> --dry-run
-# 4. runtime check on the GPU box (EVAL_ENV_TYPE=debug = offline, no simulator)
+# 4. runtime check on the GPU machine (EVAL_ENV_TYPE=debug = offline, no simulator)
 ```
 
 ## Files

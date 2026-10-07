@@ -279,7 +279,7 @@ def _preprocessor_stats(dinov3_path: str | None):
 
 class Model(ModelTemplate):
     def __init__(self, model_cfg):
-        import torch  # GPU-box dependency; repo tests never import this module
+        import torch  # GPU-only dependency; repo tests never import this module
 
         self.model_cfg = dict(model_cfg)
         self.task_name = self.model_cfg.get("task_name", "default_task")

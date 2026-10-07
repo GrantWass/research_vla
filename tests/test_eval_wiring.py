@@ -23,7 +23,7 @@ def run(cmd, cwd, timeout=120):
 
 def has_mapfile():
     # smoke_all_tasks.sh needs bash 4+ (mapfile); stock macOS ships bash 3.2.
-    # `brew install bash` provides it; the Linux GPU box is unaffected.
+    # `brew install bash` provides it; Linux is unaffected.
     r = subprocess.run(["bash", "-c", "type mapfile"], capture_output=True, check=False)
     return r.returncode == 0
 
@@ -107,7 +107,7 @@ class TestDryRunEval(unittest.TestCase):
 class TestPolicyContract(unittest.TestCase):
     def test_websocket_protocol(self):
         # The eval client only speaks ws by default; a tcp-only deploy.yml
-        # would fail at connection time on the GPU box, not here.
+        # would fail at connection time on the GPU machine, not here.
         for policy in ["demo_policy", "OpenVLA_OFT"]:
             self.assertEqual(deploy_yml_value(policy, "protocol"), "ws", policy)
 

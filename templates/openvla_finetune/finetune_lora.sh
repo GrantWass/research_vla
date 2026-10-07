@@ -1,5 +1,5 @@
 #!/bin/bash
-# OpenVLA LoRA fine-tune launcher. Run on the GPU box from openvla/ root:
+# OpenVLA LoRA fine-tune launcher. Run on the GPU machine from openvla/ root:
 #   cd openvla && bash ../templates/openvla_finetune/finetune_lora.sh
 #
 # All settings come from env vars (defaults = BridgeData V2 single-A100 recipe

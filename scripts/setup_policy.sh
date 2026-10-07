@@ -1,6 +1,6 @@
 #!/bin/bash
-# One-shot policy env + checkpoint setup on the Linux GPU box (after setup.sh
-# and RoboDojo's own install; see GPU_BOX_SETUP.md).
+# One-shot policy env + checkpoint setup (after setup.sh and RoboDojo's own
+# install; see docs/sim.md).
 #
 #   bash scripts/setup_policy.sh demo
 #   bash scripts/setup_policy.sh openvla
@@ -8,7 +8,7 @@
 #   bash scripts/setup_policy.sh turbovla [--robotwin-smoke]
 #
 # Each target is idempotent and encodes the fixes the upstream installers need
-# (verified 2026-09 on Ubuntu 24.04 + driver 580 + RTX 4070 Ti SUPER):
+# (verified on Ubuntu 24.04 + driver 580):
 #   openvla  conda env `openvla_oft`: prebuilt flash-attn wheel (the adapter's
 #            install.sh dies on CUDA_HOME), dependency pins (`pip check` clean),
 #            official RoboDojo ckpt RoboDojo-sim-arx_x5-joint-1 (~19 GB).
@@ -48,7 +48,7 @@ die() { echo "[setup_policy:${POLICY}] ERROR: $*" >&2; exit 1; }
 
 [[ -d "${XPL}/policy" ]] || die "RoboDojo/XPolicyLab missing (run setup.sh first)."
 command -v conda >/dev/null 2>&1 || [[ -x "${HOME}/miniconda3/bin/conda" ]] \
-  || die "conda not found (run RoboDojo/scripts/install.sh first; see GPU_BOX_SETUP.md)."
+  || die "conda not found (run RoboDojo/scripts/install.sh first; see docs/sim.md)."
 # shellcheck disable=SC1091
 source "$( (command -v conda >/dev/null && conda info --base) || echo "${HOME}/miniconda3")/etc/profile.d/conda.sh"
 export PIP_USER=0 PYTHONNOUSERSITE=1
@@ -91,7 +91,7 @@ setup_openvla() {
   if [[ ! -e "${dir}/checkpoints/RoboDojo-sim-arx_x5-joint-1" ]]; then
     (cd "${ROBODOJO}" && bash scripts/RoboDojo/download_ckpt.sh huggingface OpenVLA_OFT)
   fi
-  log "done. 16 GB GPU? run: bash scripts/lowvram.sh apply"
+  log "done. Short on VRAM? run: bash scripts/lowvram.sh apply"
 }
 
 setup_pi05() {
@@ -119,7 +119,7 @@ setup_pi05() {
     git -C "${ROBODOJO}/.cache/robodojo_ckpt_huggingface_repo" lfs pull \
       --include="${run}/_CHECKPOINT_METADATA" --exclude=""
   fi
-  log "done. 16 GB GPU? run: bash scripts/lowvram.sh apply (sets JAX mem fraction 0.45)"
+  log "done. Short on VRAM? run: bash scripts/lowvram.sh apply (sets JAX mem fraction 0.45)"
 }
 
 setup_turbovla() {

@@ -1,6 +1,6 @@
 """TurboVLA-on-RoboDojo training tests: overlay parity + stats math.
 
-The training recipe itself needs the GPU box (torch, lerobot, 4x GPU), but
+The training recipe itself needs the GPU machine (torch, lerobot, 4x GPU), but
 everything this repo owns is verifiable on a Mac with system Python:
   - data_registry/data_config.py mirrors the upstream robotwin50 modality keys
     (same LeRobot feature schema on both sides), checked via AST (no imports).

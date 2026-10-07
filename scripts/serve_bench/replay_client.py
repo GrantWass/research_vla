@@ -1,6 +1,6 @@
 """Live-server replay scenarios (heterogeneous serving tests).
 
-Needs a running pi0.5 policy server (GPU box) + `websockets` + `numpy`;
+Needs a running pi0.5 policy server + `websockets` + `numpy`;
 both imports are lazy so Mac CI (which has neither) can still use the
 pure helpers and run the tests.
 
@@ -48,7 +48,7 @@ CAMERAS = ("cam_high", "cam_left_wrist", "cam_right_wrist")
 
 def make_obs(persona: str, seed: int = 0) -> dict:
     """Build one encoded observation (server also accepts raw env obs)."""
-    import numpy as np  # lazy: GPU-box/server-test dependency only
+    import numpy as np  # lazy: server-test dependency only
 
     # Not hash(): str hashing is salted per process, so pixels would differ
     # between runs and between the solo and batched halves of a comparison.

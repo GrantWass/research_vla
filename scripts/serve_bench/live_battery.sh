@@ -1,5 +1,5 @@
 #!/bin/bash
-# Live-server serving battery (GPU box). For each server mode, starts one
+# Live-server serving battery. For each server mode, starts one
 # standalone pi0.5 policy server, runs replay_client scenarios against it, and
 # shuts it down. No simulator: isolates serving behavior from sim speed.
 #

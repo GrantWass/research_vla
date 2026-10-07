@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# TurboVLA policy env for RoboDojo eval (GPU box, Ubuntu 22.04 + CUDA).
+# TurboVLA policy env for RoboDojo eval (Ubuntu 22.04 + CUDA).
 #
 #   cd RoboDojo/XPolicyLab/policy/TurboVLA   # after scripts/install_adapter.sh turbovla
 #   bash install.sh

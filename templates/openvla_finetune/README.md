@@ -8,7 +8,7 @@ Three routes — pick one before touching data:
 | **OFT recipe** | Recommended by the OpenVLA authors (2025-03): 25–50× faster inference, higher success, multi-image, bimanual. | `https://openvla-oft.github.io/` (+ `XPolicyLab/policy/OpenVLA_OFT/`) |
 | **Full FT (FSDP)** | Only if LoRA fails (e.g. target domain far from pretraining). Needs ~8×A100 node. | `openvla/vla-scripts/train.py` + Prismatic checkpoint `openvla-7b-prismatic` |
 
-## 0. One-time setup (GPU box)
+## 0. One-time setup
 
 ```bash
 conda create -n openvla python=3.10 -y && conda activate openvla
@@ -69,4 +69,4 @@ Either serve it behind an XPolicyLab adapter (copy `templates/xpolicylab_policy/
 point `checkpoint_path` at the run dir) or, for the OFT route, use
 `RoboDojo/XPolicyLab/policy/OpenVLA_OFT/` (`train.sh`/`eval.sh`, TFDS `aloha_<run_id>`
 dataset). Then: `bash scripts/robodojo.sh smoke --policy-dir ... --only <task> --dry-run`
-first, runtime `smoke` on the GPU box second.
+first, runtime `smoke` on the GPU machine second.

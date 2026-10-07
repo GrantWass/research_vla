@@ -42,12 +42,12 @@ ADAPTER_FILES = [
     "install.sh",
 ]
 
-# deploy.yml is machine-local config: on a GPU box it points at whichever
+# deploy.yml is machine-local config: on a GPU machine it points at whichever
 # checkpoint that box serves (see scripts/install_turbovla_deploy.sh), so the
 # installed copy is EXPECTED to differ from the adapter default. Asserting
 # byte-equality here is what used to drive install_adapter.sh --force and
 # silently revert a deployed fine-tuned config. Its schema is checked by
-# test_deploy_yml_contract and tests/test_gpu_box_tooling.py instead.
+# test_deploy_yml_contract and tests/test_setup_tooling.py instead.
 ADAPTER_CONFIG_FILES = {"deploy.yml"}
 
 
@@ -67,7 +67,7 @@ def ensure_adapter_installed():
     r = run(["bash", "scripts/install_adapter.sh", "turbovla"])
     if r.returncode != 0:
         # --force, never --force-config: re-syncing adapter CODE must not reset
-        # deploy.yml, which on a GPU box names the checkpoint being served.
+        # deploy.yml, which on a GPU machine names the checkpoint being served.
         r = run(["bash", "scripts/install_adapter.sh", "turbovla", "--force"])
     assert r.returncode == 0, f"install_adapter failed:\n{r.stderr}"
 
@@ -116,7 +116,7 @@ class TestPolicyRegistry(unittest.TestCase):
                 self.assertTrue(conf.get(key), f"{name}.conf missing {key}")
 
     def test_action_type_values_valid(self):
-        # A conf typo here would only surface on the GPU box; fail here.
+        # A conf typo here would only surface on the GPU machine; fail here.
         for name, conf in self.confs.items():
             self.assertIn(conf.get("ACTION_TYPE"), ["joint", "ee"], f"{name}.conf")
 

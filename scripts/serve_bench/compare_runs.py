@@ -1,7 +1,7 @@
 """Aggregate measured runs into one comparison table.
 
 Reads a manifest of runs (scripts/serve_bench/runs_*.json) plus the raw
-PI05_TIMING_LOG jsonl files captured on the GPU box, and reports the two
+PI05_TIMING_LOG jsonl files captured on the GPU machine, and reports the two
 things that actually decide whether serving strategy matters:
 
 - gpu_busy_pct: sum(infer_ms) / wall_s. How much of the run the brain was
