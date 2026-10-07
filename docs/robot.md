@@ -39,6 +39,7 @@ checkpoint's conventions.
 | `lerobot_policy.py` | wraps a LeRobot checkpoint in the runner's policy interface |
 | `teleop.py` | far arm leads by hand, close arm follows through `SafetyFilter` |
 | `recorder.py` | records teleop demos into a LeRobot dataset (`teleop --record`) |
+| `park.py` | fold an arm and power it down gently (`make park ARM=1`) |
 | `verify.py` | GPU and robot I/O checks: joints in limits, camera fps, snapshot PNGs, `--wiggle` (joint 6 +0.05 rad and back) |
 
 ## Commands
@@ -94,9 +95,10 @@ directory per session; LeRobot's dataset tools can merge sessions.
   allowed.
 - **Disabling drops the arm.** At the lowest pose the firmware accepts, each
   arm sits about 1 inch above its base. Disabling the motors there drops it
-  that inch, and the wrist falls to about 37°. A gentle park is still to
-  write: fold, lower J5, damped e-stop `MotionCtrl_1(0x01,0,0)`, then disable.
-  Reset with `MotionCtrl_1(0x02,0,0)`.
+  that inch, and the wrist falls to about 37°. `make park ARM=1|2` is meant to
+  avoid that: it folds with J5 already at 37°, triggers the damped e-stop
+  (`EmergencyStop(0x01)`), waits, disables, then clears the e-stop (`0x02`).
+  **It hasn't run on the arms yet.** Run it the first time with someone watching.
 - **Teaching mode** (`MasterSlaveConfig 0xFA`) applies immediately, with no
   power cycle. The arm goes limp and the wrist sags about 30°. It broadcasts
   joint targets (0x155-0x157, gripper 0x159) **only while being moved**;
@@ -129,7 +131,7 @@ fine-tune pi0.5 base, LAP-3B or GigaBrain-0.7.
 
 ## Next steps
 
-1. Gentle park routine (above), tested once with someone watching.
+1. First run of `make park` (above), with someone watching.
 2. Banana test on the close arm (needs a banana and a basket).
 3. Record demos of a few tasks (`teleop --record`, above), then fine-tune
    (pi0.5 base, LAP-3B or GigaBrain-0.7). Recording has been tested against

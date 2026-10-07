@@ -246,6 +246,12 @@ class FakePiper:
     def GripperCtrl(self, pos, *a):
         self.grip = pos
 
+    def EmergencyStop(self, code):
+        self.calls.append(("EmergencyStop", code))
+
+    def DisablePiper(self):
+        self.calls.append("DisablePiper")
+
 
 class FakeCams:
     def __init__(self, cfg):
@@ -272,6 +278,16 @@ class TestPiper(unittest.TestCase):
         b = PiperBackend(cfg, sdk_factory=factory, cameras=FakeCams(cfg), **kw)
         b.connect()
         return b, made
+
+    def test_park_folds_then_stops_damped_and_disables(self):
+        b, made = self.make()
+        arm = made["can_piper1"]
+        arm.joints = [-90000, 10000, -10000, 0, 0, 5000]  # 0.001 deg
+        b.park(sleep=lambda s: None, log=lambda *a: None)
+        deg = np.asarray(arm.joints) / 1000
+        np.testing.assert_allclose(deg, [-90, 0, 0, 0, 36.8, 0], atol=0.1)  # base kept
+        tail = [c for c in arm.calls if c == "DisablePiper" or c[0] == "EmergencyStop"]
+        self.assertEqual(tail, [("EmergencyStop", 1), "DisablePiper", ("EmergencyStop", 2)])
 
     def test_single_arm_config(self):
         b, made = self.make()

@@ -1,4 +1,4 @@
-.PHONY: help test test-verbose setup check clean doctor inventory policies install-adapter setup-policy dry-run eval smoke smoke-all robot-venv robot-check teleop
+.PHONY: help test test-verbose setup check clean doctor inventory policies install-adapter setup-policy dry-run eval smoke smoke-all robot-venv robot-check teleop park
 .DEFAULT: help
 
 # Repo venv when present (robot deps), else system python.
@@ -21,6 +21,7 @@ help:
 	@echo "make robot-venv          Create .venv from requirements/robot.txt"
 	@echo "make robot-check [ARM=1|2]  Read-only joint/camera check -> verify/piper_ARM/"
 	@echo "make teleop [SECONDS=300]   Far arm leads, close arm follows"
+	@echo "make park [ARM=1|2]         Fold and power down gently (asks first)"
 	@echo ""
 	@echo "Sim (docs/sim.md)"
 	@echo "make policies            List registered policies (policies/*.conf)"
@@ -58,6 +59,9 @@ robot-check:
 SECONDS ?= 300
 teleop:
 	$(PY) -m real_robot.teleop --leader can_piper2 --follower-config real_robot/configs/piper_1.json --seconds $(SECONDS)
+
+park:
+	$(PY) -m real_robot.park --config real_robot/configs/piper_$(ARM).json
 
 # ---- sim
 

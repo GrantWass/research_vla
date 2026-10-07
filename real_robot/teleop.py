@@ -26,6 +26,8 @@ import time
 
 import numpy as np
 
+from .backends import ease_to
+from .cameras import NoCameras
 from .config import load_config
 from .piper import PiperBackend, PiperLeader
 from .safety import SafetyFilter
@@ -33,17 +35,6 @@ from .safety import SafetyFilter
 START_MISMATCH_RAD = 0.8  # refuse to start if follower and leader differ more (~46 deg; eased at 0.3 rad/s)
 LEADER_GLITCH_RAD = 0.5  # leader joint jump between two samples that we treat as bad data
 FOLLOW_LAG_ABORT = 1.0   # follower this far behind the leader on any joint: stop (stuck/blocked)
-
-
-def ease_to(robot: PiperBackend, safety: SafetyFilter, target: np.ndarray, hz: float,
-            vel: float = 0.3, sleep=time.sleep) -> None:
-    """Move the follower to target with a cosine profile at <= vel rad/s."""
-    start = robot.get_joint_state()
-    n = max(int(hz), int(np.max(np.abs(target[:6] - start[:6])) / vel * hz))
-    for i in range(1, n + 1):
-        s = 0.5 - 0.5 * np.cos(np.pi * i / n)
-        robot.command_joints(safety.filter(start + s * (target - start), robot.get_joint_state()))
-        sleep(1.0 / hz)
 
 
 def teleop(leader: PiperLeader, robot: PiperBackend, cfg, seconds: float, hz: float,
@@ -139,7 +130,7 @@ def main(argv=None) -> int:
         from .recorder import DemoRecorder, create_dataset
 
         dataset = create_dataset(args.record, cfg, args.fps)
-    robot = PiperBackend(cfg, cameras=None if args.record else _NoCameras())
+    robot = PiperBackend(cfg, cameras=None if args.record else NoCameras())
     leader.connect()
     robot.connect()
     if args.record:
@@ -163,14 +154,6 @@ def main(argv=None) -> int:
         summary["dataset"] = args.record
     print(summary)
     return 0 if summary["status"] in ("ok", "interrupted") else 2
-
-
-class _NoCameras:
-    def read(self):
-        return {}
-
-    def close(self):
-        pass
 
 
 if __name__ == "__main__":

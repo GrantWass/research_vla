@@ -5,12 +5,17 @@ import time
 
 import numpy as np
 
-from .backends import RobotBackend
+from .backends import RobotBackend, ease_to
 from .cameras import Cameras
 from .config import PER_ARM, RobotConfig
+from .safety import SafetyFilter
 
 MDEG_PER_RAD = 1000.0 * 180.0 / np.pi  # piper_sdk joints are 0.001 deg
 UM_PER_M = 1e6  # piper_sdk gripper stroke is 0.001 mm
+
+# Folded pose to power down from: J2/J3 at the firmware's lowest accepted
+# values, wrist bent to where it falls anyway (~37 deg) so it has nowhere to drop.
+PARK_J2_TO_J6 = np.array([0.0, 0.0, 0.0, 0.642, 0.0])
 
 
 def piper_sdk_interface(can_name: str):
@@ -100,6 +105,32 @@ class PiperBackend(RobotBackend):
                 self._send_arm(arm, self._read_arm(arm))
             except Exception:  # never let hold() raise during cleanup
                 pass
+
+    def park(self, hz: float = 25.0, settle_s: float = 3.0, sleep=time.sleep, log=print) -> None:
+        """Fold, then power down gently instead of dropping (UNTESTED on the arms).
+
+        Disabling the motors at the fold drops each arm ~1 inch onto its base
+        and the wrist to ~37 deg. So: ease to PARK_J2_TO_J6 (keeping the base
+        angle and gripper), trigger the firmware's damped emergency stop
+        (EmergencyStop 0x01: joints descend slowly), wait settle_s, disable,
+        then clear the e-stop (0x02) so the next EnablePiper works.
+        """
+        if self.passive:
+            raise RuntimeError("PiperBackend is passive; refusing to park")
+        q = self.get_joint_state()
+        target = q.copy()
+        for k in range(len(self.arms)):
+            target[PER_ARM * k + 1:PER_ARM * k + 6] = PARK_J2_TO_J6
+        target = np.clip(target, self.cfg.joint_lower, self.cfg.joint_upper)
+        log(f"folding to deg {np.degrees(target[:6]).round(0)}")
+        ease_to(self, SafetyFilter(self.cfg), target, hz, vel=0.2, sleep=sleep)
+        log("damped stop, then disable")
+        for arm in self.arms.values():
+            arm.EmergencyStop(0x01)
+        sleep(settle_s)
+        for arm in self.arms.values():
+            arm.DisablePiper()
+            arm.EmergencyStop(0x02)
 
     def close(self) -> None:
         if self.cameras:

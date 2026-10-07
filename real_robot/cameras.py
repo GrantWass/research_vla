@@ -207,3 +207,13 @@ class Cameras:
     def close(self) -> None:
         for r in self.readers:
             r.close()
+
+
+class NoCameras:
+    """For arm-only sessions (teleop without recording, park)."""
+
+    def read(self) -> dict[str, np.ndarray]:
+        return {}
+
+    def close(self) -> None:
+        pass

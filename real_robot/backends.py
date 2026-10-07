@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import abc
+import time
 
 import numpy as np
 
@@ -65,6 +66,17 @@ class MockBackend(RobotBackend):
 
     def hold(self) -> None:
         self.held += 1
+
+
+def ease_to(robot: RobotBackend, safety, target: np.ndarray, hz: float,
+            vel: float = 0.3, sleep=time.sleep) -> None:
+    """Move the follower to target with a cosine profile at <= vel rad/s."""
+    start = robot.get_joint_state()
+    n = max(int(hz), int(np.max(np.abs(target[:6] - start[:6])) / vel * hz))
+    for i in range(1, n + 1):
+        s = 0.5 - 0.5 * np.cos(np.pi * i / n)
+        robot.command_joints(safety.filter(start + s * (target - start), robot.get_joint_state()))
+        sleep(1.0 / hz)
 
 
 def make_backend(name: str, cfg: RobotConfig) -> RobotBackend:
