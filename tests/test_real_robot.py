@@ -1,6 +1,7 @@
 """Real-robot bridge tests: mock robot + fake policy, no GPU/server/hardware."""
 import json
 import os
+import time
 import sys
 import tempfile
 import unittest
@@ -149,6 +150,46 @@ class TestRealRobot(unittest.TestCase):
                 live=True, speed=1.0, max_steps=10)
         self.assertTrue(s["status"].startswith("safety_abort"))
         self.assertEqual(robot.commands, [])
+        self.assertEqual(robot.held, 1)
+
+    def test_async_runs_without_pausing_and_skips_elapsed_actions(self):
+        cfg = RobotConfig(verified=True, control_hz=100.0)  # 10 ms steps
+        infer_s = 0.05  # 5 steps of latency
+
+        class Slow(FakePolicy):
+            def call(self, func_name=None, obs=None):
+                if func_name == "get_action":
+                    time.sleep(infer_s)
+                return super().call(func_name, obs)
+
+        robot = MockBackend(cfg, lag=1.0)
+        policy = Slow(lambda st, n: drift(st, n, step=0.001), chunk_len=30)
+        t0 = time.perf_counter()
+        s = run(robot, policy, cfg, instruction="x", live=True, speed=1.0,
+                max_steps=60, execute_steps=15, async_infer=True)
+        wall = time.perf_counter() - t0
+        self.assertEqual(s["status"], "ok")
+        self.assertEqual(len(robot.commands), 60)
+        self.assertEqual(robot.held, 1)
+        self.assertEqual(s["starved_steps"], 0)
+        self.assertGreater(s["chunks"], 2)
+        # each switch skips the actions that elapsed while the chunk was inferred
+        self.assertGreaterEqual(s["skipped_actions"], 3 * (s["chunks"] - 1))
+        # async: one up-front inference + 60 steps (0.65 s); sync would add a
+        # pause per chunk (0.6 + 4 * 0.05 = 0.8 s)
+        self.assertLess(wall, 0.6 + infer_s + 0.07)
+
+    def test_async_inference_error_holds(self):
+        class FailsSecond(FakePolicy):
+            def call(self, func_name=None, obs=None):
+                if func_name == "get_action" and len(self.obs) > 1:
+                    raise TimeoutError("server gone")
+                return super().call(func_name, obs)
+
+        robot = MockBackend(self.cfg)
+        s = run(robot, FailsSecond(drift, chunk_len=10), self.cfg, instruction="x",
+                live=True, speed=1.0, max_steps=50, execute_steps=5, async_infer=True)
+        self.assertIn("TimeoutError", s["status"])
         self.assertEqual(robot.held, 1)
 
     def test_server_error_holds(self):

@@ -77,8 +77,11 @@ class LerobotPolicy:
 
         state = np.asarray(obs["state"], dtype=np.float32).copy()
         state[0] += self.base_offset
-        if self.extra_state is not None:
-            extra = np.asarray(self.extra_state(), dtype=np.float64).copy()
+        extra = obs.get("extra_state")  # sent along by PolicyProcess
+        if extra is None and self.extra_state is not None:
+            extra = self.extra_state()
+        if extra is not None:
+            extra = np.asarray(extra, dtype=np.float64).copy()
             if self.base_offset:
                 extra = rotate_end_pose(extra, self.base_offset)
             state = np.concatenate([state, extra.astype(np.float32)])
@@ -109,6 +112,85 @@ class LerobotPolicy:
 
     def close(self) -> None:
         pass
+
+
+class PolicyProcess:
+    """A LerobotPolicy in a child process, with the same call() interface.
+
+    In the robot process, piper_sdk's CAN reader thread (and the camera
+    threads) compete with eager PyTorch for the GIL: inference took 682 ms
+    there vs 358 ms alone (2026-10-07, RTX 3090). A child process has its own
+    GIL. extra_state() is read here, next to the robot, and sent with the obs.
+    """
+
+    def __init__(self, extra_state=None, **policy_kwargs):
+        import multiprocessing as mp
+
+        ctx = mp.get_context("spawn")  # CUDA cannot be forked
+        self.conn, child = ctx.Pipe()
+        self.proc = ctx.Process(target=_serve, args=(child, policy_kwargs), daemon=True)
+        self.proc.start()
+        self.extra_state = extra_state
+        self.obs = None
+        self._recv()  # wait for the model to load (raises its error if it failed)
+
+    def _recv(self):
+        if not self.conn.poll(600):
+            raise TimeoutError("policy process did not answer in 600 s")
+        ok, value = self.conn.recv()
+        if not ok:
+            raise RuntimeError(f"policy process: {value}")
+        return value
+
+    def call(self, func_name: str, **kw):
+        if func_name == "update_obs":
+            obs = dict(kw["obs"])
+            if self.extra_state is not None:
+                obs["extra_state"] = np.asarray(self.extra_state(), dtype=np.float64)
+            self.obs = obs
+            return None
+        if func_name == "get_action":
+            self.conn.send(("infer", self.obs))
+        else:
+            self.conn.send((func_name, None))
+        return self._recv()
+
+    def close(self) -> None:
+        if self.proc.is_alive():
+            try:
+                self.conn.send(("stop", None))
+            except (BrokenPipeError, OSError):
+                pass
+            self.proc.join(10)
+            if self.proc.is_alive():
+                self.proc.kill()
+
+
+def _serve(conn, policy_kwargs) -> None:
+    """Child process loop for PolicyProcess."""
+    import traceback
+
+    try:
+        policy = LerobotPolicy(**policy_kwargs)
+        conn.send((True, None))
+    except Exception:  # noqa: BLE001  report load errors to the parent
+        conn.send((False, traceback.format_exc(limit=3)))
+        return
+    while True:
+        try:
+            func, obs = conn.recv()
+        except EOFError:
+            return
+        if func == "stop":
+            return
+        try:
+            if func == "infer":
+                policy.call("update_obs", obs=obs)
+                conn.send((True, policy.call("get_action")))
+            else:
+                conn.send((True, policy.call(func)))
+        except Exception:  # noqa: BLE001
+            conn.send((False, traceback.format_exc(limit=3)))
 
 
 def rotate_end_pose(pose: np.ndarray, theta: float) -> np.ndarray:
