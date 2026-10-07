@@ -5,7 +5,7 @@
 - Branches: `<user>/<short-description>`. Commits: `[Scope] type: description`.
   Scopes: `Robot | Sim | Policies | Serving | Templates | Tests | Docs | chore`.
   Types: `feat | fix | update | docs | chore`.
-- Upstream code (`openvla/`, `turbovla/`, `RoboDojo/`) is never committed. Change it
+- Upstream code (`turbovla/`, `RoboDojo/`) is never committed. Change it
   through a file in `patches/` applied by a setup script, or PR it upstream.
 - Never commit weights, datasets, eval outputs, run logs (`real_robot_logs/`,
   `verify/`) or secrets (`.env`, HF tokens). `.gitignore` and pre-commit's

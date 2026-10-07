@@ -6,13 +6,17 @@ Run:  python3 -m unittest discover -s tests -v   (from research_vla root)
 """
 
 import os
-import py_compile
 import subprocess
 import unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ROBODOJO = os.path.join(ROOT, "RoboDojo")
 XPL_POLICY = os.path.join(ROBODOJO, "XPolicyLab", "policy")
+
+needs_robodojo = unittest.skipUnless(
+    os.path.isfile(os.path.join(ROBODOJO, "scripts", "robodojo.sh")),
+    "RoboDojo checkout missing (bash setup.sh)",
+)
 
 
 def run(cmd, cwd, timeout=120):
@@ -38,6 +42,9 @@ def deploy_yml_value(policy, key):
     return None
 
 
+@needs_robodojo
+
+
 class TestShellSyntax(unittest.TestCase):
     def test_robodojo_scripts_parse(self):
         for script in ["scripts/robodojo.sh", "scripts/eval_policy.sh"]:
@@ -56,6 +63,9 @@ class TestShellSyntax(unittest.TestCase):
                     continue
                 r = run(["bash", "-n", path], cwd=ROBODOJO)
                 self.assertEqual(r.returncode, 0, f"{path}: {r.stderr}")
+
+
+@needs_robodojo
 
 
 class TestDryRunEval(unittest.TestCase):
@@ -104,6 +114,9 @@ class TestDryRunEval(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
 
 
+@needs_robodojo
+
+
 class TestPolicyContract(unittest.TestCase):
     def test_websocket_protocol(self):
         # The eval client only speaks ws by default; a tcp-only deploy.yml
@@ -123,17 +136,6 @@ class TestPolicyContract(unittest.TestCase):
         for policy in ["demo_policy", "OpenVLA_OFT"]:
             with open(os.path.join(XPL_POLICY, policy, "eval.sh")) as f:
                 self.assertTrue(f.readline().startswith("#!/bin/bash"), policy)
-
-
-class TestOpenVLAScripts(unittest.TestCase):
-    def test_key_scripts_compile(self):
-        for rel in [
-            "vla-scripts/deploy.py",
-            "vla-scripts/finetune.py",
-            "experiments/robot/libero/run_libero_eval.py",
-        ]:
-            path = os.path.join(ROOT, "openvla", rel)
-            py_compile.compile(path, doraise=True)
 
 
 if __name__ == "__main__":

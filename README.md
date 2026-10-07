@@ -26,10 +26,10 @@ RTX 3090 24 GB) that drives the arms.
 | `policies/` | One `*.conf` per sim policy; `scripts/run_eval.sh --policy <name>` resolves it |
 | `adapters/turbovla_robodojo/` | Our XPolicyLab adapter for TurboVLA |
 | `patches/` | Fixes to the upstream checkouts, applied by the setup scripts; `make test` checks they still apply |
-| `scripts/` | `setup_policy.sh`, `run_eval.sh`, `install_*.sh`, `lowvram.sh`, `serve_bench/` |
-| `templates/` | Skeletons: new RoboDojo task, new policy adapter, OpenVLA LoRA and TurboVLA fine-tunes |
+| `scripts/` | `setup_policy.sh`, `run_eval.sh`, `install_adapter.sh`, `serve_bench/` |
+| `templates/` | Skeletons: new RoboDojo task, new XPolicyLab policy adapter |
 | `tests/` | CPU-only `unittest` suite; no GPU, Isaac or robot needed |
-| `openvla/`, `turbovla/`, `RoboDojo/` | Upstream checkouts (git-ignored), recreated at pinned commits by `setup.sh` |
+| `turbovla/`, `RoboDojo/` | Upstream checkouts (git-ignored), recreated at pinned commits by `setup.sh` |
 
 ## Quickstart
 

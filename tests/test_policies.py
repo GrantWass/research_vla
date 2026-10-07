@@ -23,6 +23,11 @@ POLICIES_DIR = os.path.join(ROOT, "policies")
 ADAPTER_SRC = os.path.join(ROOT, "adapters", "turbovla_robodojo")
 ROBODOJO = os.path.join(ROOT, "RoboDojo")
 
+needs_robodojo = unittest.skipUnless(
+    os.path.isfile(os.path.join(ROBODOJO, "scripts", "robodojo.sh")),
+    "RoboDojo checkout missing (bash setup.sh)",
+)
+
 REQUIRED_CONF_KEYS = [
     "POLICY_NAME",
     "DESCRIPTION",
@@ -126,6 +131,8 @@ class TestPolicyRegistry(unittest.TestCase):
             self.assertTrue(d.startswith("XPolicyLab/policy/"), f"{name}: {d}")
             self.assertEqual(len(d.split("/")), 3, f"{name}: {d}")
 
+    @needs_robodojo
+
     def test_upstream_adapters_exist(self):
         # openvla/demo/pi05 adapters ship with XPolicyLab; they must be present.
         for name in ["openvla", "demo", "pi05"]:
@@ -170,6 +177,8 @@ class TestRunEvalWrapper(unittest.TestCase):
         for name in ["openvla", "turbovla", "demo", "pi05"]:
             self.assertIn(name, r.stdout)
 
+    @needs_robodojo
+
     def test_dry_run_resolves_each_policy(self):
         expectations = {
             "openvla": "XPolicyLab/policy/OpenVLA_OFT",
@@ -193,6 +202,8 @@ class TestRunEvalWrapper(unittest.TestCase):
                 self.assertEqual(r.returncode, 0, r.stderr)
                 self.assertIn(adapter, r.stdout + r.stderr)
                 self.assertIn("stack_bowls", r.stdout + r.stderr)
+
+    @needs_robodojo
 
     def test_swap_changes_only_model_flags(self):
         # The whole point: openvla <-> turbovla <-> pi05 differ in
@@ -219,6 +230,8 @@ class TestRunEvalWrapper(unittest.TestCase):
             self.assertIn("stack_bowls", out)
             self.assertIn("run_policy_eval.sh", out)
 
+    @needs_robodojo
+
     def test_cli_overrides_beat_conf(self):
         # Regression: sourcing the conf must not clobber CLI-passed
         # --env-cfg/--action-type (they used to be silently ignored).
@@ -239,6 +252,8 @@ class TestRunEvalWrapper(unittest.TestCase):
         out = r.stdout + r.stderr
         self.assertIn("dual_x5", out)
         self.assertIn(" ee ", out)
+
+    @needs_robodojo
 
     def test_smoke_mode_forwards_conf_action_type(self):
         # Regression: smoke/benchmark dropped --env-cfg/--action-type, so

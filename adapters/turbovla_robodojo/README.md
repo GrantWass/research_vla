@@ -1,62 +1,34 @@
-# TurboVLA adapter for RoboDojo (`adapters/turbovla_robodojo/`)
+# TurboVLA adapter for RoboDojo
 
-XPolicyLab policy adapter that serves **TurboVLA**
-([H-EmbodVis/TurboVLA](https://github.com/H-EmbodVis/TurboVLA), 0.2B params,
-direct V+L→A, 32 Hz / <1 GB VRAM on an RTX 4090) inside RoboDojo eval.
-Owned by this repo; installed (copied) into the upstream checkout — the
-upstream `RoboDojo/` tree is never edited by hand.
-
-## Install (once per machine)
+XPolicyLab adapter that serves **TurboVLA**
+([H-EmbodVis/TurboVLA](https://github.com/H-EmbodVis/TurboVLA): 0.2B params,
+direct V+L→A, 32 Hz, under 1 GB of VRAM) in RoboDojo. It is installed by
+copying it into the upstream checkout; never edit `RoboDojo/` by hand.
 
 ```bash
-bash setup.sh                                          # pins openvla/, turbovla/, RoboDojo/
-bash scripts/setup_policy.sh turbovla --robotwin-smoke # adapter + env + ckpts + DINOv3/BERT
-```
-
-`setup_policy.sh` runs `install_adapter.sh` and this adapter's `install.sh`,
-downloads DINOv3 ViT-L (gated: accept the license on Hugging Face and save a
-read token first, see `docs/sim.md`) and BERT. With `--robotwin-smoke`
-it also installs `deploy.robotwin_smoke.yml` as the adapter's `deploy.yml`.
-
-## Run (model swap is one flag)
-
-```bash
-bash scripts/run_eval.sh --policy turbovla --task stack_bowls --dry-run   # Mac-safe
+bash scripts/setup_policy.sh turbovla --robotwin-smoke   # adapter + env + released ckpt + DINOv3/BERT (HF token needed)
 bash scripts/run_eval.sh --policy turbovla --task stack_bowls --mode smoke --fail-fast
-bash scripts/run_eval.sh --policy openvla  --task stack_bowls --dry-run   # back to OpenVLA
 ```
 
-## Status: wiring verified in Isaac Sim
+**Status:** wiring is verified end to end in Isaac Sim with the released
+RoboTwin checkpoint (`deploy.robotwin_smoke.yml`): 3 cameras, 14-D dual-arm
+state and actions, both arms move. That checkpoint is for a different robot, so
+it can't score. Real results need a checkpoint trained on RoboDojo data. Our
+2,000-step fine-tune was far undertrained (`docs/findings.md`). The training
+recipe was removed from this repo; it is in git history before the cleanup
+branch and in upstream `turbovla/`.
 
-- **Wiring is verified end to end.** With the released RoboTwin ckpt
-  (`deploy.robotwin_smoke.yml`), a `stack_bowls` smoke run passes in Isaac Sim
-  and both arms and grippers move, so observations, all 3 cameras, the 14-D
-  dual-arm state and actions, and the server/client loop all work. The
-  motions aren't task-meaningful because that ckpt was trained on a different robot.
-- **Real weights come from `templates/turbovla_finetune/`**: train on RoboDojo's
-  `lerobot_v3.0_ee` data (same LeRobot schema, no data rewrite), compute
-  stats, copy `deploy.robodojo.yml` over this `deploy.yml`, and point `--ckpt`
-  at the run dir.
-
-Checkpoint handling:
-
-| Ckpt | Result |
+| Checkpoint | Behavior |
 |---|---|
-| RoboDojo-finetuned run dir | Full eval path (`action_layout: packed`). |
-| RoboTwin `.safetensors` (released) | Loads: legacy module names are remapped, `learned_patch` position embeddings detected, `action_layout: arms_first` reorders RoboTwin's `[arm_0, arm_1, ee_0, ee_1]` to RoboDojo's `[arm_0, ee_0, arm_1, ee_1]`, and unnormalized grippers (stats `mask`) pass through. Smoke only. |
-| LIBERO `.pth` | Fails fast with `Packed state dim ... != ckpt state_dim`, which is correct: the LIBERO proprio convention doesn't transfer. |
-| Any 7-D single-arm ckpt + `dual_arm_mode: first_arm` | Drives arm 0, holds arm 1 at zero. Smoke only. |
-
-The fail-fast errors name the exact knob to change, so a dimension mismatch
-can never silently corrupt metrics.
-
-## Files
+| RoboDojo-trained run dir | full eval path (`action_layout: packed`) |
+| RoboTwin `.safetensors` (released) | loads: legacy names remapped, `action_layout: arms_first` reorders `[arm_0, arm_1, ee_0, ee_1]`. Smoke only |
+| LIBERO `.pth` | fails fast on the state-dim mismatch, which is correct |
+| 7-D single-arm + `dual_arm_mode: first_arm` | drives arm 0, holds arm 1. Smoke only |
 
 | File | Role |
 |---|---|
-| `model.py` | `ModelTemplate` impl: ckpt load (EMA-aware, `.pth` or `.safetensors`, legacy key remap), N-view (head/left/right wrist) input, DINOv3 resize+normalize, proprio normalize, chunk infer, min/max arm denorm + gripper sign rule (mirrors upstream `turbovla/evaluation/policy.py`), `unpack_robot_state` to env dicts. |
-| `deploy.yml` | All knobs (`dinov3_path`, `bert_path`, `checkpoint_path`, `stats_path`, `num_views`, `chunk_size`, `state_dim`, `action_dim`, `action_layout`, `dual_arm_mode`, ...). Null = env var / workspace default. |
-| `deploy.robotwin_smoke.yml` | Sim-wiring smoke config for the released RoboTwin ckpt (`@SHARED@` filled in by `setup_policy.sh --robotwin-smoke`). |
-| `deploy.py` | Env-side episode loop (`eval_one_episode[_batch]`), same as upstream `demo_policy`. |
-| `eval.sh`, `setup_eval_policy_server.sh`, `setup_eval_env_client.sh` | Standard XPolicyLab launchers (same protocol as `SmolVLA`/`OpenVLA_OFT`). |
-| `install.sh` | Env: `turbovla-robodojo` conda env, torch cu121, editable installs, `hf download H-EmbodVis/TurboVLA`. |
+| `model.py` | checkpoint load (EMA-aware, legacy key remap), N-view input, DINOv3 preprocessing, normalization, chunk inference, unpacking to env dicts |
+| `deploy.yml` | every knob (paths, `num_views`, `chunk_size`, dims, `action_layout`, `dual_arm_mode`); null = env var / default |
+| `deploy.robotwin_smoke.yml` | wiring-smoke config for the released checkpoint |
+| `deploy.py`, `eval.sh`, `setup_eval_*.sh` | standard XPolicyLab episode loop and launchers |
+| `install.sh` | `turbovla-robodojo` conda env + released checkpoints |

@@ -1,6 +1,5 @@
 # Upstream clones live here but are NOT committed; setup.sh reproduces them
 # at pinned commits. (Committed: tests/, templates/, docs, setup.sh itself.)
-openvla/
 turbovla/
 RoboDojo/
 
@@ -33,9 +32,6 @@ venv/
 .DS_Store
 .vscode/
 .idea/
-
-# Local small-GPU profile (scripts/lowvram.sh)
-.lowvram.env
 
 # Robot run outputs (real_robot runner / verify)
 real_robot_logs/

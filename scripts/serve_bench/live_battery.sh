@@ -20,8 +20,6 @@ PORT="${PORT:-19732}"
 URL="ws://localhost:${PORT}"
 OUT="${2:-/tmp/live_battery}"
 mkdir -p "${OUT}"
-# shellcheck disable=SC1091
-[[ -f "${ROOT}/.lowvram.env" ]] && source "${ROOT}/.lowvram.env"
 
 # Non-interactive ssh shells lack conda on PATH; the server script needs it.
 export PATH="${HOME}/miniconda3/bin:${HOME}/miniconda3/condabin:${PATH}"

@@ -1,4 +1,4 @@
-"""Workspace layout smoke tests: repos cloned, key paths present.
+"""Workspace layout: docs and README in place; upstream checkouts when cloned.
 
 Runs on any machine with system Python. No GPU, Isaac, torch, or conda needed.
 Run:  python3 -m unittest discover -s tests -v   (from research_vla root)
@@ -14,26 +14,17 @@ def p(*parts):
     return os.path.join(ROOT, *parts)
 
 
+needs_robodojo = unittest.skipUnless(
+    os.path.isfile(p("RoboDojo", "scripts", "robodojo.sh")),
+    "RoboDojo checkout missing (bash setup.sh)",
+)
+
+
 class TestWorkspaceLayout(unittest.TestCase):
     def assertPathExists(self, path):
         self.assertTrue(os.path.exists(path), f"missing: {path}")
 
-    def test_openvla_cloned(self):
-        for rel in [
-            "openvla/pyproject.toml",
-            "openvla/vla-scripts/deploy.py",
-            "openvla/vla-scripts/finetune.py",
-            "openvla/vla-scripts/train.py",
-            "openvla/requirements-min.txt",
-            "openvla/experiments/robot/libero/run_libero_eval.py",
-        ]:
-            self.assertPathExists(p(rel))
-
-    def test_openvla_is_code_repo(self):
-        # openvla/ is the runnable codebase (the openvla.github.io website
-        # clone was removed: 108 MB of static assets, zero Python files).
-        self.assertPathExists(p("openvla/prismatic"))
-
+    @needs_robodojo
     def test_robodojo_cloned(self):
         for rel in [
             "RoboDojo/scripts/robodojo.sh",
@@ -46,6 +37,7 @@ class TestWorkspaceLayout(unittest.TestCase):
         ]:
             self.assertPathExists(p(rel))
 
+    @needs_robodojo
     def test_xpolicylab_submodule_initialized(self):
         for rel in [
             "RoboDojo/XPolicyLab/policy/demo_policy/eval.sh",

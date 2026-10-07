@@ -9,7 +9,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts", "ser
 
 from metrics import RequestRecord, read_jsonl, summarize, write_jsonl
 from schedulers import PendingRequest, earliest_deadline, round_robin, sequential
-from simulate import FleetSim, compare
+from simulate import FleetSim
 
 try:
     from replay_client import PERSONAS, make_obs, to_record
@@ -108,9 +108,7 @@ class TestSimulate(unittest.TestCase):
             self.assertLess(s.run(1000)["starvation_rate"], 0.01)
 
     def test_batching_wins_when_stressed(self):
-        res = compare(["sequential", "earliest_deadline"], POOLS,
-                      n_robots=10, drop_rate=0.0, seed=0)
-        # with chunk_len=25 default this is mild; force stress via short chunks
+        # short chunks force the brain to be the bottleneck
         stressed = {}
         for name in ("sequential", "earliest_deadline"):
             s = FleetSim(n_robots=10, chunk_len=8, infer_pools=POOLS,

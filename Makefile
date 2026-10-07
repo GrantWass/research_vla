@@ -1,11 +1,11 @@
-.PHONY: help test test-verbose setup check clean doctor inventory policies install-adapter setup-policy dry-run eval smoke smoke-all lowvram robot-check teleop
+.PHONY: help test test-verbose setup check clean doctor inventory policies install-adapter setup-policy dry-run eval smoke smoke-all robot-check teleop
 .DEFAULT: help
 
 # Repo venv when present (robot deps), else system python.
 PY ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python3)
 
 # Sim: make dry-run POLICY=turbovla TASK=stack_bowls
-POLICY ?= openvla
+POLICY ?= pi05
 TASK ?=
 CKPT ?=
 MODE ?= eval
@@ -29,7 +29,6 @@ help:
 	@echo "make smoke-all [TASK=<t>]                    Smoke every policy, pass/fail table"
 	@echo "make doctor | inventory  RoboDojo health check | runnable tasks"
 	@echo "make install-adapter POLICY=<p>  Copy our adapter into XPolicyLab"
-	@echo "make lowvram ARGS=apply|revert|status  Low-VRAM sim profile"
 	@echo "make clean               Remove pyc/pycache files"
 
 test:
@@ -102,9 +101,6 @@ smoke-all:
 	done; \
 	printf "smoke-all ($$task):$$rows\n"; exit $$fail
 
-lowvram:
-	bash scripts/lowvram.sh $(or $(ARGS),status)
-
 clean:
-	find . -name "*.pyc" -not -path "./openvla/*" -not -path "./RoboDojo/*" -not -path "./turbovla/*" -not -path "./.venv/*" | xargs rm -f 2>/dev/null; \
+	find . -name "*.pyc" -not -path "./RoboDojo/*" -not -path "./turbovla/*" -not -path "./.venv/*" | xargs rm -f 2>/dev/null; \
 	find tests templates policies adapters scripts real_robot -name "__pycache__" | xargs rm -rf 2>/dev/null; true

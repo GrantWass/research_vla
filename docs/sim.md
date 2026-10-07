@@ -1,5 +1,8 @@
 # Simulation: VLA policies in RoboDojo (Isaac Sim)
 
+Secondary now that the real arms are running. Kept for comparing policies and
+for the serving experiments (`docs/serving.md`).
+
 RoboDojo is the benchmark: 54 runnable tasks on Isaac Sim 5.1 + Isaac Lab, a
 dual ARX X5 robot (`env_cfg=arx_x5`), and XPolicyLab adapters that serve each
 policy over a websocket. This repo adds a model registry on top, so swapping
@@ -10,14 +13,15 @@ bash scripts/run_eval.sh --policy pi05 --task stack_bowls --dry-run   # openvla 
 ```
 
 Needs Ubuntu 22.04/24.04, an RTX GPU, NVIDIA driver **580**, 32 GB RAM. These
-steps were verified on Ubuntu 24.04 with a 16 GB card. The Alienware (22.04,
-RTX 3090 24 GB, driver 580) has not run the sim yet.
+steps were verified on Ubuntu 24.04. The Alienware (22.04, RTX 3090 24 GB,
+driver 580) hasn't run the sim yet, so `setup.sh` hasn't been run there and
+`make test` skips the sim tests.
 
 ## Policies
 
 | `--policy` | Model | Adapter | Env | Checkpoint |
 |---|---|---|---|---|
-| `pi05` | pi0.5 3B | upstream `XPolicyLab/policy/Pi_05` | `uv` | `RoboDojo-sim-arx_x5-joint-0` (params only) |
+| `pi05` (default) | pi0.5 3B | upstream `XPolicyLab/policy/Pi_05` | `uv` | `RoboDojo-sim-arx_x5-joint-0` (params only) |
 | `openvla` | OpenVLA-OFT 7B | upstream `XPolicyLab/policy/OpenVLA_OFT` | conda `openvla_oft` | `RoboDojo-sim-arx_x5-joint-1` |
 | `turbovla` | TurboVLA 0.2B | ours, `adapters/turbovla_robodojo/` | conda `turbovla-robodojo` | released RoboTwin ckpt, or one we fine-tuned |
 | `demo` | zero-action stub | upstream `demo_policy` | conda `RoboDojo` | none (wiring test) |
@@ -45,7 +49,7 @@ sudo apt install -y nvidia-driver-580 build-essential cmake ffmpeg git git-lfs \
 git lfs install && vulkaninfo --summary | grep deviceName   # must list the NVIDIA GPU
 ```
 
-**2. Upstream checkouts** at pinned commits (`openvla/`, `turbovla/`, `RoboDojo/` + XPolicyLab):
+**2. Upstream checkouts** at pinned commits (`turbovla/`, `RoboDojo/` + XPolicyLab):
 
 ```bash
 bash setup.sh && make check && make test
@@ -85,12 +89,9 @@ make smoke-all                                          # every policy through I
 | pi0.5: pull only `params/` + `assets/` | the full ckpt is ~45 GB, mostly optimizer state |
 | TurboVLA: adapter remaps legacy keys, reads views and arm layout from config | released ckpts predate upstream's renames |
 
-**Low-VRAM profile (optional).** On a card under ~24 GB, Isaac Sim (7.7 GB)
-plus a 3-7B policy doesn't fit. `bash scripts/lowvram.sh apply` (`status`,
-`revert`) switches to cheaper rendering (DLAA stays on), sizes the PhysX
-buffers for one env, loads OpenVLA in 4-bit (LLM only), and sets JAX to a
-memory fraction of 0.45. That brings the sim down to 5.7 GB and OpenVLA to
-9.2 GB. Report headline numbers without it.
+**Memory.** Isaac Sim takes ~7.7 GB. pi0.5 next to it needs
+`XLA_PYTHON_CLIENT_MEM_FRACTION` of about 0.45 on a 24 GB card. OpenVLA-OFT 7B
+in bf16 (15.2 GB) doesn't fit next to the sim on 24 GB.
 
 ## Running evals
 
@@ -107,17 +108,15 @@ bash scripts/run_eval.sh --policy pi05 --mode benchmark --gpu-ids 0   # all task
 - To check wiring without the sim, run an adapter's `eval.sh` with `EVAL_ENV_TYPE=debug`.
 - Split server and client: `--mode server --bind-host 0.0.0.0` on one side,
   `--mode client --policy-host <ip>` on the other.
+- For fair comparisons keep `num_envs: 1` in `RoboDojo/env_cfg/sim/sim_config.yml`
+  and leave antialiasing on (`docs/findings.md`).
 
 ## Fine-tuning
 
-- **TurboVLA on one task:** `templates/turbovla_finetune/README.md`. It carves
-  one task out of RoboDojo's LeRobot download (`stack_bowls`: 3 GB instead of
-  117 GB), computes stats, trains from the released checkpoint (apply
-  `patches/turbovla_full_ckpt_init.patch` and `turbovla_lerobot_video_index.patch`
-  first), then `scripts/install_turbovla_deploy.sh --run <run> --step N`. Use
-  `lerobot_v3.0` (14-D joints), not `_ee`.
-- **OpenVLA LoRA:** `templates/openvla_finetune/README.md`.
-- **pi0.5:** the upstream adapter: `cd RoboDojo/XPolicyLab/policy/Pi_05 && bash process_data.sh RoboDojo cotrain arx_x5 joint && bash train.sh RoboDojo cotrain arx_x5 joint 0 0`.
+In sim, pi0.5 trains through its upstream adapter:
+`cd RoboDojo/XPolicyLab/policy/Pi_05 && bash process_data.sh RoboDojo cotrain arx_x5 joint && bash train.sh RoboDojo cotrain arx_x5 joint 0 0`.
+The OpenVLA LoRA and TurboVLA fine-tune recipes were removed from this repo
+(they're in git history). Fine-tuning for the arms is in `docs/robot.md`.
 
 Before reading anything into a 0/N sim result, score the checkpoint offline:
 compare its predicted actions with ground truth, against a "hold still"
@@ -129,10 +128,9 @@ baseline, with the cameras real and blacked out (see `docs/findings.md`).
 |---|---|
 | Segfault in `librtx.scenedb.plugin.so` after "app ready" | Driver 580, not 595 |
 | `Unable to bootstrap inner kit kernel: EOF` | `export OMNI_KIT_ACCEPT_EULA=YES` |
-| `CUDA out of memory` / `VkResult: ERROR_OUT_OF_DEVICE_MEMORY` | `scripts/lowvram.sh apply`; after a Vulkan OOM the sim hangs, so kill it and rerun |
+| `CUDA out of memory` / `VkResult: ERROR_OUT_OF_DEVICE_MEMORY` | policy + sim exceed VRAM: lower the JAX fraction or use a smaller policy; after a Vulkan OOM the sim hangs, so kill it and rerun |
 | pi0.5 `RESOURCE_EXHAUSTED` restoring params | raise `XLA_PYTHON_CLIENT_MEM_FRACTION` |
 | pi0.5 `No module named 'yaml'` | `conda install -n base pyyaml` |
 | TurboVLA 401 / gated repo | accept the DINOv3 license and save an HF token to `~/.cache/huggingface/token` |
-| Eval runs the RoboTwin weights after you pointed it at your own | `install_adapter.sh --force` reinstalls the stock `deploy.yml`; rerun `install_turbovla_deploy.sh` |
-| Trainer killed at a checkpoint save, no traceback | host RAM OOM (`dmesg -T \| grep -i oom`); save less often |
+| Eval runs the RoboTwin weights after you pointed it at your own | `install_adapter.sh --force` reinstalls the stock `deploy.yml`; point `checkpoint_path` at your run again |
 | `uv` download timeout | rerun (`UV_HTTP_TIMEOUT=120` is set) |

@@ -12,6 +12,11 @@ import unittest
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ROBODOJO = os.path.join(ROOT, "RoboDojo")
 
+needs_robodojo = unittest.skipUnless(
+    os.path.isfile(os.path.join(ROBODOJO, "scripts", "robodojo.sh")),
+    "RoboDojo checkout missing (bash setup.sh)",
+)
+
 
 def run_inventory():
     out = subprocess.run(
@@ -30,6 +35,9 @@ def run_inventory():
     )
     assert out.returncode == 0, f"task_inventory failed:\n{out.stderr}"
     return json.loads(out.stdout)
+
+
+@needs_robodojo
 
 
 class TestTaskInventory(unittest.TestCase):

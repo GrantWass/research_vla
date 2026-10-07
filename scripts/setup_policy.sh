@@ -91,7 +91,7 @@ setup_openvla() {
   if [[ ! -e "${dir}/checkpoints/RoboDojo-sim-arx_x5-joint-1" ]]; then
     (cd "${ROBODOJO}" && bash scripts/RoboDojo/download_ckpt.sh huggingface OpenVLA_OFT)
   fi
-  log "done. Short on VRAM? run: bash scripts/lowvram.sh apply"
+  log "done."
 }
 
 setup_pi05() {
@@ -119,7 +119,7 @@ setup_pi05() {
     git -C "${ROBODOJO}/.cache/robodojo_ckpt_huggingface_repo" lfs pull \
       --include="${run}/_CHECKPOINT_METADATA" --exclude=""
   fi
-  log "done. Short on VRAM? run: bash scripts/lowvram.sh apply (sets JAX mem fraction 0.45)"
+  log "done. Next to the sim, set XLA_PYTHON_CLIENT_MEM_FRACTION (e.g. 0.45) if the params do not fit."
 }
 
 setup_turbovla() {

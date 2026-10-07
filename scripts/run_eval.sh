@@ -18,19 +18,13 @@
 #       [--env-cfg CFG] [--action-type joint|ee] [--seed N] [--eval-num N]
 #       [--policy-gpu ID] [--env-gpu ID] [--list] [EXTRA... -> robodojo.sh]
 #
-#   --policy defaults to $POLICY, then "openvla".
+#   --policy defaults to $POLICY, then "pi05".
 #   --mode defaults to "eval" ("dry-run" only resolves/prints, Mac-safe).
 #   Unknown flags are passed through to robodojo.sh verbatim.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 POLICIES_DIR="${ROOT}/policies"
-# Small-GPU memory settings from `scripts/lowvram.sh apply` (absent by default).
-if [[ -f "${ROOT}/.lowvram.env" ]]; then
-  # shellcheck disable=SC1091
-  source "${ROOT}/.lowvram.env"
-  echo "[run_eval] low-VRAM profile active (.lowvram.env)" >&2
-fi
 # RoboDojo's per-policy server scripts call `conda activate`, so conda must be on
 # PATH. An interactive shell has it via ~/.bashrc, but `ssh host "bash ..."` and
 # cron/nohup launches do not -- there the server dies with "conda: command not
@@ -105,7 +99,7 @@ list_policies() {
   done
 }
 
-POLICY="${POLICY:-openvla}"
+POLICY="${POLICY:-pi05}"
 TASK=""
 CKPT=""
 MODE="eval"

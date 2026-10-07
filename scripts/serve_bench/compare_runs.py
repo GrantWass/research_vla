@@ -21,7 +21,6 @@ success_rate, score, wall_s, peak_vram_mib, timing_log (basename or path).
 from __future__ import annotations
 
 import argparse
-import glob
 import json
 import os
 from collections import Counter

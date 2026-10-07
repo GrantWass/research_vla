@@ -6,7 +6,7 @@
 # The RoboTwin ckpt matches dual_x5 dimensionally (3 views, 14-D joint) but was
 # trained on a different robot: it proves observations, both arms and grippers
 # are wired end to end in Isaac Sim. Never report metrics from it — train on
-# RoboDojo data (templates/turbovla_finetune/) and use deploy.robodojo.yml.
+# RoboDojo data first.
 policy_name: TurboVLA
 protocol: ws
 host: localhost
