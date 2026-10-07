@@ -13,11 +13,8 @@ from .safety import SafetyFilter
 MDEG_PER_RAD = 1000.0 * 180.0 / np.pi  # piper_sdk joints are 0.001 deg
 UM_PER_M = 1e6  # piper_sdk gripper stroke is 0.001 mm
 
-# Folded pose to power down from: J2/J3 at the firmware's lowest accepted
-# values, wrist bent to where it falls anyway (~37 deg) so it has nowhere to drop.
-# This is the pose of the first far-arm park test (2026-10-07), which the user
-# judged OK. Variants with J3 -2 / J5 30-34 deg (to stay clear of the base)
-# held the arm ~1 cm up and then dropped it hard at release: don't use them.
+# The folded pose every home() and park() ends in: J2/J3 at the firmware's
+# lowest accepted values, J5 at 36.8 deg. This is how the arms park; keep it.
 PARK_J2_TO_J6 = np.array([0.0, 0.0, 0.0, 0.642, 0.0])
 
 

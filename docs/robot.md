@@ -147,17 +147,12 @@ directory per session; LeRobot's dataset tools can merge sessions.
   but the arms rest about 2° past both. Commanding the rest pose lifts the arm
   2°. `SafetyFilter.check_state` has a 0.05 rad margin, so starting at rest is
   allowed.
-- **Disabling drops the arm.** At the lowest pose the firmware accepts, each
-  arm sits about 1 inch above its base. Disabling the motors there drops it
-  that inch, and the wrist falls to about 37°. `make park` folds (base held),
-  turns the base to `home_base`, triggers the e-stop (`EmergencyStop(0x01)`),
-  waits 3 s, disables, then clears the e-stop (`0x02`), using the fold pose
-  J2 0°, J3 0°, J5 36.8°. That version, run on the far arm from an extended
-  pose (2026-10-07), looked OK. Two variants were worse, so don't bring them
-  back: a pose kept clear of the base (J3 -2°, J5 30-34°) held the arm ~1 cm
-  up and then dropped it hard, and an untried MIT-mode "soft landing" was
-  rejected. Watch the first few parks; the arm still settles its last ~2°
-  when the motors let go.
+- **Parking.** This is how we park, so the arm never slams down: `make park`
+  folds with the base held (J2 0°, J3 0°, J5 36.8°), turns the base back to
+  face the table (`home_base`), triggers the damped e-stop
+  (`EmergencyStop(0x01)`), waits 3 s, disables the motors, then clears the
+  e-stop (`0x02`). `make home` does the same fold and turn but leaves the
+  motors on. Never disable the motors from any other pose.
 - **Cameras.** The three color cameras share one USB 2.0 bus, so they stream
   MJPG (raw YUYV doesn't fit three at once). They start one after another:
   the third delivers its first frame ~2.7 s after opening, then all run at
