@@ -5,7 +5,7 @@ import abc
 
 import numpy as np
 
-from .config import SIM_IMAGE_HW, RobotConfig
+from .config import IMAGE_HW, RobotConfig
 
 
 class RobotBackend(abc.ABC):
@@ -52,7 +52,7 @@ class MockBackend(RobotBackend):
         return self.q.copy()
 
     def get_images(self) -> dict[str, np.ndarray]:
-        return {c: self.rng.integers(0, 256, (*SIM_IMAGE_HW, 3), dtype=np.uint8)
+        return {c: self.rng.integers(0, 256, (*IMAGE_HW, 3), dtype=np.uint8)
                 for c in self.cfg.camera_names}
 
     def command_joints(self, q: np.ndarray) -> None:

@@ -61,11 +61,15 @@ def chunk_to_array(actions: Any, state_dim: int) -> np.ndarray:
 
 
 def connect_policy(url: str, timeout_s: float):
+    """Client for an XPolicyLab policy server (the one RoboDojo evals use)."""
     here = os.path.dirname(os.path.abspath(__file__))
-    xpl = os.path.join(here, "..", "RoboDojo", "XPolicyLab")
-    sys.path.insert(0, os.path.abspath(os.path.join(xpl, "..")))
-    sys.path.insert(0, os.path.abspath(xpl))
-    from client_server.ws.model_client import WsModelClient  # lazy: box only
+    xpl = os.path.abspath(os.path.join(here, "..", "RoboDojo", "XPolicyLab"))
+    if not os.path.isdir(os.path.join(xpl, "client_server")):
+        raise SystemExit(f"--url needs the XPolicyLab client in {xpl} (run `bash setup.sh`), "
+                         f"or use --lerobot for an in-process policy")
+    sys.path.insert(0, os.path.dirname(xpl))
+    sys.path.insert(0, xpl)
+    from client_server.ws.model_client import WsModelClient
 
     return WsModelClient(url=url, evaluation_id="real_robot",
                          trial_id=f"real-{int(time.time())}",

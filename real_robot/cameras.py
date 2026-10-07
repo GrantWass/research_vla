@@ -1,9 +1,9 @@
-"""Policy cameras: OpenCV (UVC) and Orbbec SDK readers, RGB uint8 at sim resolution."""
+"""Policy cameras: OpenCV (UVC) and Orbbec SDK readers, RGB uint8 at IMAGE_HW."""
 from __future__ import annotations
 
 import numpy as np
 
-from .config import SIM_IMAGE_HW
+from .config import IMAGE_HW
 
 
 class OpenCVCameras:
@@ -33,8 +33,8 @@ class OpenCVCameras:
         self.stop = threading.Event()
         for name in names:
             cap = cv2.VideoCapture(devices[name])
-            cap.set(cv2.CAP_PROP_FRAME_WIDTH, SIM_IMAGE_HW[1])
-            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, SIM_IMAGE_HW[0])
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH, IMAGE_HW[1])
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, IMAGE_HW[0])
             if not cap.isOpened():
                 raise RuntimeError(f"cannot open camera {name} ({devices[name]!r})")
             self.caps[name] = cap
@@ -74,8 +74,8 @@ class OpenCVCameras:
         out = {}
         for name in self.caps:
             bgr = frames[name][1]
-            if bgr.shape[:2] != SIM_IMAGE_HW:
-                bgr = self.cv2.resize(bgr, (SIM_IMAGE_HW[1], SIM_IMAGE_HW[0]))
+            if bgr.shape[:2] != IMAGE_HW:
+                bgr = self.cv2.resize(bgr, (IMAGE_HW[1], IMAGE_HW[0]))
             out[name] = self.cv2.cvtColor(bgr, self.cv2.COLOR_BGR2RGB)
         return out
 
@@ -167,8 +167,8 @@ class OrbbecCameras:
             if color is None:
                 raise RuntimeError(f"camera {name} read failed")
             bgr = self._to_bgr(color)
-            if bgr.shape[:2] != SIM_IMAGE_HW:
-                bgr = self.cv2.resize(bgr, (SIM_IMAGE_HW[1], SIM_IMAGE_HW[0]))
+            if bgr.shape[:2] != IMAGE_HW:
+                bgr = self.cv2.resize(bgr, (IMAGE_HW[1], IMAGE_HW[0]))
             out[name] = self.cv2.cvtColor(bgr, self.cv2.COLOR_BGR2RGB)
             depth = frames.get_depth_frame()
             if depth is not None:

@@ -5,19 +5,14 @@ import json
 import os
 from dataclasses import dataclass, field
 
-# Per arm: 6 joints then 1 gripper; arms are concatenated in `arms` order.
-# For the RoboDojo sim checkpoint (dual ARX X5, XPolicyLab pack_robot_state):
-#   [left_arm(6), left_gripper(1), right_arm(6), right_gripper(1)]
+# Per arm: 6 joints then 1 gripper; arms are concatenated in `arms` order
+# (a Piper robot is one arm, so the state is 7-D).
 ARM_DOF = 6
 PER_ARM = ARM_DOF + 1
-STATE_DIM = 2 * PER_ARM  # sim default (dual arm)
 
-# Sim cameras (RoboDojo/env_cfg/camera/template.py GEMINI_345LG) and the names
-# the Pi_05 Model.encode_obs expects. pi0.5 resizes to 224 internally.
-CAMERAS = ("cam_high", "cam_left_wrist", "cam_right_wrist")
-SIM_IMAGE_HW = (480, 640)
-# RoboDojo/env_cfg/arx_x5.yml observation.collect_freq
-SIM_CONTROL_HZ = 25.0
+# Camera frames are delivered at this size (the cameras' native 640x480;
+# policies resize to their own input size).
+IMAGE_HW = (480, 640)
 
 _PER_JOINT = ("joint_lower", "joint_upper", "max_step_delta", "joint_sign", "joint_offset")
 
@@ -26,9 +21,9 @@ _PER_JOINT = ("joint_lower", "joint_upper", "max_step_delta", "joint_sign", "joi
 class RobotConfig:
     """One robot: one or more arms driven by one runner/recorder process."""
 
-    # Arm name -> CAN interface (Piper: names from piper_sdk can_activate.sh).
+    # Arm name -> CAN interface (pinned by real_robot/can_persist.sh).
     # The state/action vector concatenates arms in this order, PER_ARM each.
-    arms: dict[str, str] = field(default_factory=lambda: {"left": "can_left", "right": "can_right"})
+    arms: dict[str, str] = field(default_factory=lambda: {"arm": "can_piper1"})
     # Per-joint lists, len == state_dim. None -> loose placeholder defaults;
     # fill from the vendor spec before any live run.
     joint_lower: list[float] | None = None
@@ -39,17 +34,18 @@ class RobotConfig:
     # A requested jump this large means the policy and robot disagree badly
     # (wrong joint order, units, sign): stop instead of rate-limiting.
     abort_delta: float = 0.6
-    # Linear map between policy gripper units and real gripper units.
+    # Linear map between policy gripper units ("sim", the units the policy was
+    # trained in) and real gripper units (m).
     gripper_sim_range: list[float] = field(default_factory=lambda: [0.0, 1.0])
     gripper_real_range: list[float] = field(default_factory=lambda: [0.0, 1.0])
     # Per-joint sign/offset if the real zero or direction differs from the
     # policy's: policy = sign * real + offset (gripper uses the range map).
     joint_sign: list[float] | None = None
     joint_offset: list[float] | None = None
-    control_hz: float = SIM_CONTROL_HZ
+    control_hz: float = 25.0
     # Camera names the policy sees, in order, and the device for each
-    # (OpenCV index or /dev/v4l/by-id path). Devices only needed on hardware.
-    camera_names: list[str] = field(default_factory=lambda: list(CAMERAS))
+    # (OpenCV index, /dev/v4l path, or "orbbec[:serial]"). Devices only needed on hardware.
+    camera_names: list[str] = field(default_factory=lambda: ["cam_high", "cam_wrist"])
     cameras: dict[str, str | int] = field(default_factory=dict)
     # Piper firmware-side speed cap (MotionCtrl_2 speed, percent).
     arm_speed_percent: int = 30

@@ -17,7 +17,7 @@ if np is not None:
     from real_robot.backends import MockBackend
     from real_robot.piper import PiperBackend
     from real_robot.record import record_episode
-    from real_robot.config import STATE_DIM, RobotConfig, load_config
+    from real_robot.config import RobotConfig, load_config
     from real_robot.mapping import real_to_sim, sim_to_real
     from real_robot.runner import build_obs, chunk_to_array, preflight, run
     from real_robot.safety import SafetyAbort, SafetyFilter
@@ -67,22 +67,22 @@ class TestRealRobot(unittest.TestCase):
             load_config(f.name)
 
     def test_mapping_roundtrip(self):
-        cfg = RobotConfig(joint_sign=[-1.0] + [1.0] * 13, joint_offset=[0.2] * 14,
+        cfg = RobotConfig(joint_sign=[-1.0] + [1.0] * 6, joint_offset=[0.2] * 7,
                           gripper_sim_range=[0, 1], gripper_real_range=[0, 0.08])
-        q = np.linspace(-1, 1, STATE_DIM)
-        q[6] = q[13] = 0.04
+        q = np.linspace(-1, 1, 7)
+        q[6] = 0.04
         sim = real_to_sim(q, cfg)
         self.assertAlmostEqual(sim[6], 0.5)
         self.assertAlmostEqual(sim[0], -q[0] + 0.2)
         np.testing.assert_allclose(sim_to_real(sim, cfg), q)
 
     def test_safety_rate_limits_and_clips(self):
-        cfg = RobotConfig(max_step_delta=[0.1] * 14, joint_upper=[0.15] * 14,
-                          joint_lower=[-1.0] * 14, abort_delta=1.0)
+        cfg = RobotConfig(max_step_delta=[0.1] * 7, joint_upper=[0.15] * 7,
+                          joint_lower=[-1.0] * 7, abort_delta=1.0)
         sf = SafetyFilter(cfg)
-        cmd = sf.filter(np.full(14, 0.5), np.zeros(14))
+        cmd = sf.filter(np.full(7, 0.5), np.zeros(7))
         np.testing.assert_allclose(cmd, 0.1)
-        cmd = sf.filter(np.full(14, 0.5), cmd)
+        cmd = sf.filter(np.full(7, 0.5), cmd)
         np.testing.assert_allclose(cmd, 0.15)  # limit clip
         self.assertGreaterEqual(sf.stats.rate_clips, 1)
         self.assertGreaterEqual(sf.stats.limit_clips, 1)
@@ -90,22 +90,21 @@ class TestRealRobot(unittest.TestCase):
     def test_safety_aborts_on_jump_and_nan(self):
         sf = SafetyFilter(RobotConfig(abort_delta=0.5))
         with self.assertRaises(SafetyAbort):
-            sf.filter(np.full(14, 0.6), np.zeros(14))
-        bad = np.zeros(14)
+            sf.filter(np.full(7, 0.6), np.zeros(7))
+        bad = np.zeros(7)
         bad[3] = np.nan
         with self.assertRaises(SafetyAbort):
-            sf.filter(bad, np.zeros(14))
+            sf.filter(bad, np.zeros(7))
 
     def test_obs_format_matches_pi05_encode(self):
         robot = MockBackend(self.cfg)
-        obs = build_obs(robot.get_images(), np.zeros(14), "stack the bowls")
-        self.assertEqual(set(obs["images"]),
-                         {"cam_high", "cam_left_wrist", "cam_right_wrist"})
+        obs = build_obs(robot.get_images(), np.zeros(7), "stack the bowls")
+        self.assertEqual(set(obs["images"]), {"cam_high", "cam_wrist"})
         self.assertEqual(obs["state"].dtype, np.float32)
         self.assertEqual(obs["images"]["cam_high"].shape, (480, 640, 3))
         with self.assertRaises(ValueError):
             build_obs({**robot.get_images(), "cam_high": np.zeros((4, 4))},
-                      np.zeros(14), "x")
+                      np.zeros(7), "x")
 
     def test_chunk_dict_form(self):
         row = {"left_arm_joint_state": [1] * 6, "left_ee_joint_state": [2],
@@ -325,14 +324,14 @@ class TestPiper(unittest.TestCase):
     def test_record_episode(self):
         cfg = RobotConfig(control_hz=10)
         robot = MockBackend(cfg)
-        robot.q = np.arange(14, dtype=float)
+        robot.q = np.arange(7, dtype=float)
         with tempfile.TemporaryDirectory() as d:
             ep = record_episode(robot, cfg, d, "stack", 0.5, sleep=lambda s: None)
             ep2 = record_episode(robot, cfg, d, "stack", 0.2, sleep=lambda s: None)
             self.assertTrue(ep.endswith("episode_0000"))
             self.assertTrue(ep2.endswith("episode_0001"))
             data = np.load(os.path.join(ep, "data.npz"))
-            self.assertEqual(data["state"].shape, (5, 14))
+            self.assertEqual(data["state"].shape, (5, 7))
             np.testing.assert_array_equal(data["action"][:-1], data["state"][1:])
             with open(os.path.join(ep, "meta.json")) as f:
                 meta = json.load(f)
@@ -419,12 +418,12 @@ class TestOrbbec(unittest.TestCase):
         self.OrbbecCameras = OrbbecCameras
 
     def test_reads_rgb_at_sim_size_and_depth(self):
-        from real_robot.config import SIM_IMAGE_HW
+        from real_robot.config import IMAGE_HW
         sdk = FakeOrbbecSDK()
         cams = self.OrbbecCameras({"cam_high": "orbbec"}, ["cam_high"], sdk=sdk)
         self.assertEqual(sdk.started[0][1], ["color", "depth"])
         img = cams.read()["cam_high"]
-        self.assertEqual(img.shape, (*SIM_IMAGE_HW, 3))
+        self.assertEqual(img.shape, (*IMAGE_HW, 3))
         self.assertEqual(img.dtype, np.uint8)
         self.assertEqual(tuple(img[0, 0]), (200, 0, 0))
         self.assertEqual(cams.depth["cam_high"].shape, (4, 5))
