@@ -1,4 +1,4 @@
-.PHONY: help test test-verbose setup check clean doctor inventory policies install-adapter setup-policy dry-run eval smoke smoke-all robot-venv robot-check teleop park status snapshot home move cans leader-restore policy policy-live record
+.PHONY: policy-server policy-server-stop help test test-verbose setup check clean doctor inventory policies install-adapter setup-policy dry-run eval smoke smoke-all robot-venv robot-check teleop park status snapshot home move cans leader-restore policy policy-live record
 .DEFAULT: help
 
 # Repo venv when present (robot deps), else system python.
@@ -35,7 +35,8 @@ help:
 	@echo "make park [ARMS=...]          Fold + face the table + gentle power-down (asks first)"
 	@echo "make move ARM=1 TO=j1,..,j6 | BY=d1,..,d6 [GRIP=mm]  Ease one arm (deg; asks first)"
 	@echo "make cans                     CAN links up? | make leader-restore: far arm out of teach mode"
-	@echo "make policy [CKPT_HF=.. INSTR=.. STEPS=300]  Fast pi0.5 dry run on the close arm"
+	@echo "make policy-server            Keep the pi0.5 policy loaded (run once, in its own terminal)"
+	@echo "make policy [CKPT_HF=.. INSTR=.. STEPS=300]  pi0.5 dry run on the close arm"
 	@echo "make policy-live [...]        Same, moving the arm (asks YES; hand on e-stop)"
 	@echo "make teleop [SECONDS=300]     Far arm leads, close arm follows"
 	@echo "make record DIR=demos/x INSTR=\"...\" [EPISODES=10]  Teleop + record LeRobot demos"
@@ -103,10 +104,25 @@ leader-restore:
 # pi0.5 on the close arm: child process, CUDA graphs, async replanning (~3/s)
 # with fixed sampling noise and 4-step blending, at half the trained rate,
 # commands streamed at 100 Hz through a 2 Hz smoothing filter; docs/robot.md.
+# The model flags are shared by the policy server and in-process runs.
+MODEL_FLAGS = --lerobot $(CKPT_HF) --base-offset-deg 90 --noise-seed 0
+POLICY_SOCK ?= $(HOME)/.cache/real_robot/policy.sock
+# With a policy server running (make policy-server), runs connect to it and
+# start in ~1 s; otherwise they load and compile the model (~95 s).
+POLICY_SRC = $(if $(wildcard $(POLICY_SOCK)),--policy-server $(POLICY_SOCK),--policy-process --compile reduce-overhead)
 POLICY_FLAGS = --backend piper --config real_robot/configs/piper_1_banana.json \
-	--lerobot $(CKPT_HF) --end-pose-state --base-offset-deg 90 --instruction "$(INSTR)" \
+	$(MODEL_FLAGS) $(POLICY_SRC) --end-pose-state --instruction "$(INSTR)" \
 	--max-steps $(STEPS) --execute-steps $(EXEC) --speed $(SPEED) \
-	--policy-process --compile reduce-overhead --async --blend-steps 4 --noise-seed 0 --smooth-hz $(SMOOTH)
+	--async --blend-steps 4 --smooth-hz $(SMOOTH)
+
+# Load + compile the policy once and keep it on the GPU (leave it running in
+# a terminal; Ctrl-C or make policy-server-stop ends it).
+policy-server:
+	$(LEROBOT_PY) -m real_robot.lerobot_policy $(MODEL_FLAGS) --compile reduce-overhead --socket $(POLICY_SOCK)
+
+policy-server-stop:
+	$(LEROBOT_PY) -c "from real_robot.lerobot_policy import PolicyClient; PolicyClient('$(POLICY_SOCK)').call('shutdown')"
+
 policy:
 	$(LEROBOT_PY) -m real_robot.runner $(POLICY_FLAGS)
 

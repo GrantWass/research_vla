@@ -121,29 +121,26 @@ class LerobotPolicy:
         pass
 
 
-class PolicyProcess:
-    """A LerobotPolicy in a child process, with the same call() interface.
+# A long-running policy server (`serve`) keeps the model loaded and compiled
+# between runs: loading takes ~60 s and re-tracing the compiled model ~36 s in
+# every new process, even with the kernel cache warm.
+DEFAULT_SOCKET = os.path.expanduser("~/.cache/real_robot/policy.sock")
+_AUTHKEY = b"real_robot-policy"
 
-    In the robot process, piper_sdk's CAN reader thread (and the camera
-    threads) compete with eager PyTorch for the GIL: inference took 682 ms
-    there vs 358 ms alone (2026-10-07, RTX 3090). A child process has its own
-    GIL. extra_state() is read here, next to the robot, and sent with the obs.
-    """
 
-    def __init__(self, extra_state=None, **policy_kwargs):
-        import multiprocessing as mp
+class _RemotePolicy:
+    """Client side of a policy in another process, with the runner's call()
+    interface. extra_state() is read here, next to the robot, and sent with
+    the obs."""
 
-        ctx = mp.get_context("spawn")  # CUDA cannot be forked
-        self.conn, child = ctx.Pipe()
-        self.proc = ctx.Process(target=_serve, args=(child, policy_kwargs), daemon=True)
-        self.proc.start()
+    def __init__(self, conn, extra_state=None):
+        self.conn = conn
         self.extra_state = extra_state
         self.obs = None
-        self._recv()  # wait for the model to load (raises its error if it failed)
 
-    def _recv(self):
-        if not self.conn.poll(600):
-            raise TimeoutError("policy process did not answer in 600 s")
+    def _recv(self, timeout_s: float = 600.0):
+        if not self.conn.poll(timeout_s):
+            raise TimeoutError(f"policy did not answer in {timeout_s:.0f} s")
         ok, value = self.conn.recv()
         if not ok:
             raise RuntimeError(f"policy process: {value}")
@@ -162,6 +159,26 @@ class PolicyProcess:
             self.conn.send((func_name, None))
         return self._recv()
 
+
+class PolicyProcess(_RemotePolicy):
+    """A LerobotPolicy in a child process started for this run.
+
+    In the robot process, piper_sdk's CAN reader thread (and the camera
+    threads) compete with eager PyTorch for the GIL: inference took 682 ms
+    there vs 358 ms alone (2026-10-07, RTX 3090). A child process has its own
+    GIL.
+    """
+
+    def __init__(self, extra_state=None, **policy_kwargs):
+        import multiprocessing as mp
+
+        ctx = mp.get_context("spawn")  # CUDA cannot be forked
+        conn, child = ctx.Pipe()
+        self.proc = ctx.Process(target=_serve_child, args=(child, policy_kwargs), daemon=True)
+        self.proc.start()
+        super().__init__(conn, extra_state)
+        self._recv()  # wait for the model to load (raises its error if it failed)
+
     def close(self) -> None:
         if self.proc.is_alive():
             try:
@@ -173,7 +190,72 @@ class PolicyProcess:
                 self.proc.kill()
 
 
-def _serve(conn, policy_kwargs) -> None:
+class PolicyClient(_RemotePolicy):
+    """Connects to a running policy server (`serve`); the model stays loaded.
+
+    expect: settings the server must have been started with (path,
+    base_offset, noise_seed, camera_map); a mismatch raises ValueError.
+    """
+
+    def __init__(self, address: str = DEFAULT_SOCKET, extra_state=None, expect=None):
+        from multiprocessing.connection import Client
+
+        try:
+            conn = Client(address, family="AF_UNIX", authkey=_AUTHKEY)
+        except (FileNotFoundError, ConnectionRefusedError) as e:
+            raise RuntimeError(f"no policy server at {address}: start one with "
+                               f"`make policy-server`") from e
+        super().__init__(conn, extra_state)
+        self.info = self.call("info")
+        for k, v in (expect or {}).items():
+            have = self.info.get(k)
+            same = (np.isclose(have, v) if isinstance(v, float) and have is not None
+                    else have == v)
+            if not same:
+                conn.close()
+                raise ValueError(f"policy server has {k}={have!r}, this run wants {v!r}; "
+                                 f"restart the server with matching flags")
+
+    def close(self) -> None:
+        try:
+            self.conn.send(("stop", None))
+        except (BrokenPipeError, OSError):
+            pass
+        self.conn.close()
+
+
+def _handle(conn, policy, info) -> bool:
+    """Answer one client until it stops. True if it asked the server to exit."""
+    import traceback
+
+    while True:
+        try:
+            func, obs = conn.recv()
+        except (EOFError, ConnectionResetError):
+            return False
+        if func == "stop":
+            return False
+        if func == "shutdown":
+            conn.send((True, None))
+            return True
+        try:
+            if func == "infer":
+                policy.call("update_obs", obs=obs)
+                conn.send((True, policy.call("get_action")))
+            elif func == "info":
+                conn.send((True, info))
+            else:
+                conn.send((True, policy.call(func)))
+        except Exception:  # noqa: BLE001  report to the client, keep serving
+            conn.send((False, traceback.format_exc(limit=3)))
+
+
+def _info(policy_kwargs) -> dict:
+    return {k: policy_kwargs.get(k) for k in
+            ("path", "camera_map", "base_offset", "compile_mode", "num_steps", "noise_seed")}
+
+
+def _serve_child(conn, policy_kwargs) -> None:
     """Child process loop for PolicyProcess."""
     import traceback
 
@@ -183,21 +265,74 @@ def _serve(conn, policy_kwargs) -> None:
     except Exception:  # noqa: BLE001  report load errors to the parent
         conn.send((False, traceback.format_exc(limit=3)))
         return
-    while True:
+    _handle(conn, policy, _info(policy_kwargs))
+
+
+def warm_up(policy: "LerobotPolicy", n: int = 2, log=print) -> None:
+    """Run n inferences on a blank observation, so torch.compile and CUDA-graph
+    capture happen now rather than on the first real call. Same shapes as the
+    rig's (IMAGE_HW frames; the prompt is padded to a fixed length)."""
+    import time
+
+    from .config import IMAGE_HW
+
+    extra_dim = policy.state_dim - 7
+    obs = {"state": np.zeros(7), "instruction": "warm up",
+           "images": {c: np.zeros((*IMAGE_HW, 3), np.uint8) for c in policy.camera_map},
+           "extra_state": np.zeros(extra_dim) if extra_dim > 0 else None}
+    for i in range(n):
+        t0 = time.perf_counter()
+        policy.call("update_obs", obs=obs)
+        policy.call("get_action")
+        log(f"warmup {i + 1}/{n}: {time.perf_counter() - t0:.1f} s")
+
+
+def serve(address: str = DEFAULT_SOCKET, log=print, **policy_kwargs) -> None:
+    """Load, compile and warm up the policy once, then answer runs on a Unix
+    socket, one at a time, until Ctrl-C or a client sends "shutdown"."""
+    import time
+    from multiprocessing.connection import Listener
+
+    t0 = time.perf_counter()
+    policy = LerobotPolicy(**policy_kwargs)
+    log(f"loaded {policy_kwargs['path']} in {time.perf_counter() - t0:.0f} s")
+    warm_up(policy, log=log)
+    os.makedirs(os.path.dirname(address), exist_ok=True)
+    if os.path.exists(address):
+        os.unlink(address)  # stale socket from a server that died
+    info = _info(policy_kwargs)
+    with Listener(address, family="AF_UNIX", authkey=_AUTHKEY) as listener:
+        log(f"policy server ready on {address} ({info})")
         try:
-            func, obs = conn.recv()
-        except EOFError:
-            return
-        if func == "stop":
-            return
-        try:
-            if func == "infer":
-                policy.call("update_obs", obs=obs)
-                conn.send((True, policy.call("get_action")))
-            else:
-                conn.send((True, policy.call(func)))
-        except Exception:  # noqa: BLE001
-            conn.send((False, traceback.format_exc(limit=3)))
+            while True:
+                with listener.accept() as conn:
+                    log("run connected")
+                    if _handle(conn, policy, info):
+                        break
+                    log("run finished")
+        except KeyboardInterrupt:
+            pass
+    log("policy server stopped")
+
+
+def main(argv=None) -> int:
+    import argparse
+
+    ap = argparse.ArgumentParser(description="Keep a LeRobot policy loaded and compiled; "
+                                             "runner --policy-server connects to it.")
+    ap.add_argument("--lerobot", required=True, metavar="PATH")
+    ap.add_argument("--camera-map", default="cam_high:base,cam_wrist:wrist")
+    ap.add_argument("--base-offset-deg", type=float, default=0.0)
+    ap.add_argument("--compile", default=None, metavar="MODE")
+    ap.add_argument("--denoise-steps", type=int, default=None)
+    ap.add_argument("--noise-seed", type=int, default=None)
+    ap.add_argument("--socket", default=DEFAULT_SOCKET)
+    args = ap.parse_args(argv)
+    serve(args.socket, log=lambda m: print(m, flush=True), path=args.lerobot,
+          camera_map=dict(kv.split(":") for kv in args.camera_map.split(",")),
+          base_offset=float(np.radians(args.base_offset_deg)), compile_mode=args.compile,
+          num_steps=args.denoise_steps, noise_seed=args.noise_seed)
+    return 0
 
 
 def rotate_end_pose(pose: np.ndarray, theta: float) -> np.ndarray:
@@ -208,3 +343,7 @@ def rotate_end_pose(pose: np.ndarray, theta: float) -> np.ndarray:
     out[0], out[1] = c * x - s * y, s * x + c * y
     out[5] = (pose[5] + theta + np.pi) % (2 * np.pi) - np.pi
     return out
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

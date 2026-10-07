@@ -58,7 +58,8 @@ Arm 1 is the close arm, arm 2 the far arm. `ARMS` defaults to both.
 | `make leader-restore` | Take the far arm out of teaching mode (if a teleop session died) |
 | `make teleop [SECONDS=300]` | Far arm leads by hand, close arm follows |
 | `make record DIR=demos/<name> INSTR="..." [EPISODES=10]` | Teleop and record a LeRobot dataset |
-| `make policy [CKPT_HF=... INSTR="..." STEPS=300]` | Fast pi0.5 dry run on the close arm (flags below) |
+| `make policy-server` | Load and compile the pi0.5 policy once (~95 s) and keep it on the GPU; leave it running in its own terminal. `make policy-server-stop` ends it |
+| `make policy [CKPT_HF=... INSTR="..." STEPS=300]` | pi0.5 dry run on the close arm (flags below). Uses the policy server if it's running (starts in ~3 s), else loads the model itself (~95 s) |
 | `make policy-live [...]` | The same, moving the arm (asks YES; hand on e-stop) |
 
 The `make` targets wrap `python -m real_robot.arm` (`--help` lists its
@@ -111,6 +112,11 @@ Flags for the LeRobot policy command:
   the actions that elapsed during inference, so the arm never pauses. A
   200-step dry run held 30 Hz (33.3 ms median step, 39.7 ms worst) and never
   ran out of actions.
+- `--policy-server`: connect to `make policy-server` instead of loading the
+  model. Loading takes ~60 s and re-tracing the compiled model ~36 s in every
+  new process, even with the kernel cache warm; the server pays that once.
+  The runner refuses a server started with a different checkpoint, base
+  offset, noise seed or camera map.
 - `--execute-steps 4 --blend-steps 4`: replan as soon as each inference
   lands (every ~5 steps, ~6 plans/s instead of 1) and blend each switch.
   Consecutive chunks disagree by ~5 deg at a switch (12 deg max, live runs);

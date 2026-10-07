@@ -347,6 +347,10 @@ def main(argv=None) -> int:
                          "this many steps instead of jumping (try 8)")
     ap.add_argument("--compile", default=None, metavar="MODE",
                     help="--lerobot: torch.compile mode, e.g. max-autotune (default: eager)")
+    ap.add_argument("--policy-server", nargs="?", const="default", metavar="SOCKET",
+                    help="--lerobot: use a running policy server (make policy-server) "
+                         "instead of loading the model; it must match --lerobot, "
+                         "--base-offset-deg, --noise-seed and --camera-map")
     ap.add_argument("--policy-process", action="store_true",
                     help="--lerobot: run the policy in a child process (own GIL; "
                          "faster next to the arm's CAN thread)")
@@ -394,16 +398,24 @@ def main(argv=None) -> int:
         log_dir = args.log_dir or os.path.join(
             "real_robot_logs", time.strftime("%Y%m%d-%H%M%S") + ("-live" if args.live else "-dry"))
         if args.lerobot:
-            from .lerobot_policy import LerobotPolicy, PolicyProcess
+            from .lerobot_policy import DEFAULT_SOCKET, LerobotPolicy, PolicyClient, PolicyProcess
 
             kw = dict(path=args.lerobot,
                       camera_map=dict(kv.split(":") for kv in args.camera_map.split(",")),
-                      base_offset=np.radians(args.base_offset_deg),
+                      base_offset=float(np.radians(args.base_offset_deg)),
                       compile_mode=args.compile, num_steps=args.denoise_steps,
                       noise_seed=args.noise_seed)
             extra = robot.get_end_pose if args.end_pose_state else None
-            policy = (PolicyProcess(extra_state=extra, **kw) if args.policy_process
-                      else LerobotPolicy(extra_state=extra, **kw))
+            if args.policy_server:
+                addr = DEFAULT_SOCKET if args.policy_server == "default" else args.policy_server
+                policy = PolicyClient(addr, extra_state=extra, expect={
+                    k: kw[k] for k in ("path", "camera_map", "base_offset")}
+                    | {"noise_seed": args.noise_seed})
+                print(f"policy server: {policy.info}")
+            elif args.policy_process:
+                policy = PolicyProcess(extra_state=extra, **kw)
+            else:
+                policy = LerobotPolicy(extra_state=extra, **kw)
             for i in range(args.warmup):
                 t0 = time.perf_counter()
                 policy.call(func_name="update_obs", obs=build_obs(
