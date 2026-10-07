@@ -1,4 +1,4 @@
-.PHONY: help test test-verbose setup check clean doctor inventory dry-run eval smoke smoke-all policies install-adapter setup-policy lowvram finetune-help
+.PHONY: help real-preflight test test-verbose setup check clean doctor inventory dry-run eval smoke smoke-all policies install-adapter setup-policy lowvram finetune-help
 .DEFAULT: help
 
 # Model selector: make dry-run POLICY=turbovla TASK=stack_bowls
@@ -23,6 +23,7 @@ help:
 	@echo "make lowvram ARGS=apply|revert|status  16 GB GPU profile (scripts/lowvram.sh)"
 	@echo "make smoke-all [TASK=<t>]         Sim smoke for every policy, pass/fail table (GPU box)"
 	@echo "make finetune-help Show OpenVLA LoRA fine-tune template usage"
+	@echo "make real-preflight [ARGS=...]  Real-robot preflight (REAL_ROBOT.md)"
 	@echo "make clean         Remove pyc/pycache files"
 
 test:
@@ -101,3 +102,6 @@ finetune-help:
 clean:
 	find . -name "*.pyc" -not -path "./openvla/*" -not -path "./RoboDojo/*" -not -path "./turbovla/*" | xargs rm -f 2>/dev/null; \
 	find tests templates policies adapters scripts -name "__pycache__" | xargs rm -rf 2>/dev/null; true
+
+real-preflight:
+	python3 -m real_robot.runner --preflight-only $(ARGS)
