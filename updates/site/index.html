@@ -126,7 +126,7 @@ td:first-child { font-weight: 600; white-space: nowrap; }
   <header>
     <div class="eyebrow">Living document</div>
     <h1>VLA Serving Notebook</h1>
-    <div class="meta"><span id="m-updated"></span><span>5 papers, Jun to Oct 2026</span><span>Dates are arXiv submission dates unless marked</span></div>
+    <div class="meta"><span id="m-updated"></span></div>
   </header>
 
   <section id="map">
@@ -239,41 +239,42 @@ const EDGES = [
   { k: "A", pair: "Armory → ROSA", why: "ROSA uses a static provisioning schedule for known workloads and assumes synchronous execution. Armory models closed-loop starvation and each robot's execution state. ROSA's own text agrees it assumes a known, profiled workload." },
   { k: "B", pair: "Robion → Armory", why: "Armory schedules robots with few pending actions first, but does not optimize inference time against per-request SLOs and treats the VLA as one pipeline." },
   { k: "C", pair: "Robion → ROSA", why: "ROSA places heterogeneous robot models across a cluster and is not a serving system for concurrent execution or GPU sharing. Robion cites ROSA throughout, including in its traffic controller design." },
-  { k: "D", pair: "FirmVLA → Armory", why: "Armory Lookahead is one of FirmVLA's baselines. FirmVLA replaces best-effort scheduling with a precomputed schedule that guarantees per-robot (m,k,r) service." }
+  { k: "D", pair: "FirmVLA → Armory", why: "FirmVLA describes Armory as lookahead batching for robots that share one policy, and uses it as a baseline. FirmVLA handles mixed policies and replaces best-effort scheduling with a precomputed schedule that guarantees per-robot (m,k,r) service." }
 ];
-const EDGE_NOTE = "Arrow reasons are how the newer paper describes the older one. Only A was checked against the older paper's own text.";
+const EDGE_NOTE = "Arrow reasons are how the newer paper describes the older one. A and D were checked against the papers' own text.";
 
 const PAPERS = [
-  { name: "vla.cpp", date: "2026-06-06", lane: "Runtime", depth: "full text via summary", url: "https://arxiv.org/abs/2606.08094",
+  { name: "vla.cpp", date: "2026-06-06", lane: "Runtime", url: "https://arxiv.org/abs/2606.08094",
     q: "Can one portable runtime execute many VLA architectures outside each model's training stack, on whatever processor and memory a robot has?",
     how: "C++ runtime on ggml and llama.cpp with GGUF weights and no PyTorch at execution time. Shared loading and tensor execution, with per-model adapters for attention and action heads. A C++ server returns action chunks over ZeroMQ. Flow-matching policies cache observation-dependent conditioning across solver steps within a request. A tensor-core path for ternary weights.",
     reported: "Supports 11 models (SmolVLA, pi0, pi0.5, GR00T N1.5/1.6/1.7, OpenVLA-OFT, BitVLA and others). 10 of 11 are within 3.2 points of reference on LIBERO-Object; GR00T-N1.6 is at 88% against 99%, cause unresolved. Tested on RTX 3060, 3090, 4070, 5070, Jetson AGX Orin and Orin Nano, Apple M4, Intel GPUs. 1.02x to 6.21x faster than eager PyTorch. BitVLA 200/200 on an 8 GB Orin Nano, and 4.0x to 4.6x faster per action from the ternary kernel. On a UR10e, round trip varied 33x across four backends. SmolVLA on Orin Nano succeeded 49/50 executing 16 actions per chunk and 19/50 executing 50.",
     assumes: "Synchronous requests with one observation each. The paper does not describe batched inference. Inference is evaluated without overlapping execution (it contrasts this with Real-Time Chunking and FASTER).",
     gap: "No batching, no multiple robots, no deadlines or scheduling. Robot studies are small samples in quasi-static scenes, and dynamic manipulation is untested." },
-  { name: "ROSA", date: "2026-07", lane: "Fleet", depth: "full text via summary", url: "https://arxiv.org/abs/2607.01088",
+  { name: "ROSA", date: "2026-07", lane: "Fleet", url: "https://arxiv.org/abs/2607.01088",
     q: "How do you serve a factory's worth of robots and models, when existing systems assume one robot and one model and minimize single-request latency?",
     how: "Robots send requests over the network to a shared pool of server GPUs. Declarative task descriptors name model components, latency SLOs, invocation rates and failure handling. The scheduler maximizes weighted action throughput within SLOs using ILP packing, profiling-guided batching and request-rate capping, with admission control and hot-standby failover. Ray Serve with vLLM, PyTorch and JAX backends.",
     reported: "Up to 12.06x factory productivity over the best dedicated baseline and 2.44x SLO-qualified throughput over shared baselines. Request-rate capping gave 3.18x at 64 robots. Batch 16 gives about 3-4x the throughput of batch 1. Evaluated on 8 H200 GPUs with up to 64 virtual robots replaying real observations, GR00T N1.6 and pi0.5 as action models, Qwen2.5-VL as planner and monitor, plus one real Franka Panda.",
     assumes: "A known, static, profiled workload and synchronous execution. Stable wired or Wi-Fi 7 networking.",
     gap: "Scale results are synthetic on one 8-GPU server and the real-robot check is one arm. Less suited to dynamic request patterns, per the authors. No model of a robot's remaining action buffer." },
-  { name: "Armory", date: "2026-08", lane: "Scheduling", depth: "full text via summary", url: "https://arxiv.org/abs/2608.00337",
+  { name: "Armory", date: "2026-08", lane: "Scheduling", url: "https://arxiv.org/abs/2608.00337",
     q: "When one GPU batches requests for robots that consume action chunks at different rates, which robot do you serve next?",
     how: "Scheduling as an MDP. A Lookahead scheduler simulates forward over a server-side mirror of each robot's last executed action, last received action, and queued chunks.",
     reported: "Up to 18% higher system throughput in real-world runs, about 2x fast-tier throughput over EDF in the one-fast-robot setting. pi0.5 on one L40S with 10 AgileX PiPER arms. pi0.5 takes about 73 ms at batch 1 and 211 ms at batch 5 on an L40S. Practical up to 50 ms one-way delay. Baselines are round robin and EDF. Naive heuristics work when robots are identical and fail when consumption rates differ.",
     assumes: "Plain batching on a single GPU, with no continuous batching, PagedAttention, chunked prefill or distributed inference. Stale chunks hurt dynamic manipulation more than quasi-static tasks.",
     gap: "Authors want chunk scheduling co-designed with LLM-style serving optimizations. Real-world results rest on 3 seeds and 1-minute rollouts. Lookahead depth 2 or 3 did not help." },
-  { name: "Robion", date: "2026-09-14", lane: "Fleet", depth: "first two thirds plus references", url: "https://arxiv.org/abs/2609.12075",
+  { name: "Robion", date: "2026-09-14", lane: "Fleet", url: "https://arxiv.org/abs/2609.12075",
     q: "How do you meet per-request SLOs for many robots and several VLA models on a multi-GPU edge server when the stages run for milliseconds?",
     how: "VLM and action diffusion transformer run on two GPU streams in lockstep with fixed-size batches. SM partitioning for the VLM stream comes from a profiled table. Earliest-SLO-first scheduling across co-located models. An integer program places traffic across GPUs. Related work covers VLA systems, stage disaggregation, GPU sharing (MPS, MIG, green contexts), DiT serving and LLM serving.",
     reported: "6.7x the robot load of vLLM-Omni and 1.5x a monolithic pipeline at 98% SLO attainment. 8 models on 4 GPUs serve up to 64 robots. pi0 tensor-core use is 52% in the VLM stage and 15% in the action stage at batch 4. vLLM-Omni's per-step inspection costs 30-35% of latency. Cloud is 18-24% lower in SLO attainment than edge at 24 robots per model. About 6.8x lower hardware cost than Jetson AGX Thor on the robot. Evaluated on LIBERO.",
     assumes: "Two-stage VLM plus diffusion-action models, fixed-size batching, per-request SLOs.",
-    gap: "We have not read the evaluation and conclusion text, so limitations are unknown. Armory-style chunk state is not part of the scheduler we read about." },
-  { name: "FirmVLA", date: "2026-10-04", lane: "Scheduling", depth: "abstract only (ODI 2026 workshop poster)", url: "https://neurips.cc/virtual/2026/170025",
+    gap: "Armory-style chunk state is not part of its scheduler." },
+  { name: "FirmVLA", date: "2026-10-04", lane: "Scheduling", url: "https://openreview.net/forum?id=lW9ZhfLCOK",
     q: "Can robots running different VLA policies on one GPU get guaranteed service instead of best effort?",
-    how: "Each robot states an (m,k,r) sequence SLO: served at least m of every k refills, never more than r misses in a row. The system builds an exact repeating admission schedule and keeps its reservations.",
-    reported: "Zero SLO violations on 6 fleets of 2 to 4 policies with 14 to 122 admitted robots, and in 14 trials across start times at 50-100% load, where DBP, EDF, round robin and Armory Lookahead violate at high load. Robots that keep leftover actions through missed refills succeed 79.8% of the time, against 41.2% when they discard them, across the same 3,584 task episodes on four policies.",
-    assumes: "Our reading: a precomputed schedule implies a known fleet.",
-    gap: "Workshop poster from UT Dallas. Unknown whether it holds on real robots or with changing fleets." }
+    how: "Each robot states an (m,k,r) sequence SLO: served at least m of every k refills, never more than r misses in a row. Admission solves an exact integer program that gives each 500 ms GPU slot to one policy and reserves places for specific robots, and a checker verifies the schedule before a fleet is accepted. While serving, reservations go first and spare places go to waiting robots by distance-based priority. A timing check confirms inference, launch delay and request spread fit inside the slot. Batch capacity per policy is the largest batch that stays under 410 ms.",
+    reported: "Zero SLO violations on 6 fleets of 2 to 4 policies (pi0.5, SmolVLA, X-VLA, GR00T N1.7) with 14 to 122 admitted robots, and in 14 trials across start times at 50-100% load. At 100% load on one SmolVLA server (capacity 14), DBP has 65 violating windows and Armory Lookahead, EDF and round robin 784 each, all doing identical work. Admission matched exhaustive search on 565 small fleets and takes a median 22 ms at 10 robots and 76 ms at 80. On a GB10, pi0.5 capacity falls from 12 to 2 and SmolVLA from 58 to 14, and the cross-GPU fleet boundary from 122 to 29 robots. Robots that keep leftover actions through missed refills succeed 79.8% against 41.2% when they discard them (3,584 LIBERO episodes, four policies). Where misses fall matters for some policies: GR00T N1.7 scores 62/64 under pattern 0011 and 28/64 under 1001 at the same served fraction, while X-VLA stays at 96.9-100% through a run of 5. 1000 ms injected GPU stalls cause violations that recover in 1.0 to 3.5 s.",
+    assumes: "A known fleet declared up front, one policy per slot on one GPU, and clients that keep leftover actions. Its Armory baseline is the authors' adaptation (depth-two lookahead, same slots), and the paper describes Armory as handling robots that share one policy.",
+    gap: "All task results are LIBERO episodes in simulation, with no physical robots described. Admission is not guaranteed to finish for large fleets: at 160 robots one of three cases finished within the 1 s limit. The guarantee holds only while measured timings stay within the slot." }
+
 ];
 
 const MATRIX = [
@@ -281,23 +282,23 @@ const MATRIX = [
   { p: "ROSA", unit: "Whole factory", obj: "Productivity under SLO", models: "GR00T N1.6, pi0.5, Qwen2.5-VL", hw: "8x H200", ev: "64 virtual robots, 1 real Franka" },
   { p: "Armory", unit: "Robot's chunk buffer", obj: "Throughput without starvation", models: "pi0.5", hw: "1 L40S", ev: "Sim fleets, 10 real PiPER arms" },
   { p: "Robion", unit: "GPU stream and SMs", obj: "SLO attainment", models: "pi0 and 8 co-located models", hw: "4-GPU edge server", ev: "LIBERO" },
-  { p: "FirmVLA", unit: "Sequence of refills", obj: "Guaranteed (m,k,r)", models: "Heterogeneous VLA policies", hw: "One GPU", ev: "6 fleets, 14 trials" }
+  { p: "FirmVLA", unit: "Sequence of refills", obj: "Guaranteed (m,k,r)", models: "pi0.5, SmolVLA, X-VLA, GR00T N1.7", hw: "RTX PRO 6000, GB10", ev: "LIBERO episodes, up to 122 admitted robots" }
 ];
 
 const TRENDS = [
   { t: "The objective keeps tightening", d: "Single-request latency, then factory productivity, then starvation avoidance, then guaranteed service per robot." },
   { t: "The unit of scheduling shrinks", d: "A whole inference, a robot's action buffer, a GPU stream and its SMs, a sequence of refills." },
   { t: "Runtime and serving are still separate", d: "The one paper that covers edge-class GPUs (vla.cpp: 3090, Orin) has no batching. The papers that batch across robots use L40S, H200 or a multi-GPU server. Nothing covers multi-robot serving on edge-class hardware." },
-  { t: "Real-robot evidence is thin", d: "ROSA uses one Franka arm, Armory 10 PiPER arms, vla.cpp small samples in quasi-static scenes, Robion evaluates on LIBERO. Dynamic manipulation is mostly untested." }
+  { t: "Real-robot evidence is thin", d: "ROSA uses one Franka arm, Armory 10 PiPER arms, vla.cpp small samples in quasi-static scenes. Robion and FirmVLA evaluate on LIBERO. Dynamic manipulation is mostly untested." }
 ];
 
 const QUESTIONS = [
   { t: "Does chunk-aware scheduling compose with intra-GPU stage concurrency?", status: "open", d: "Armory decides which robot goes next. Robion splits one GPU between VLM and action stages. No paper reports both together.", test: "Add a time-until-the-robot-runs-dry priority to our batching and measure stall rate." },
   { t: "Where does cloud lose to edge?", status: "partial", d: "Robion reports cloud 18-24% lower SLO attainment at 24 robots per model. Armory stays practical up to 50 ms one-way delay. ROSA assumes wired or Wi-Fi 7.", test: "Measure our own round trip from the robot PC to each GPU box at our fleet size." },
-  { t: "Does multi-robot serving work on 3090, DGX Spark, and RTX PRO 6000 class devices at 1 to 3 arms?", status: "open", d: "vla.cpp runs on a 3090 but serves one request at a time. Armory, Robion and ROSA batch across robots on L40S, H200 or a multi-GPU server.", test: "Fill the measurement grid below at 1 to 3 arms." },
+  { t: "Does multi-robot serving work on 3090, DGX Spark, and RTX PRO 6000 class devices at 1 to 3 arms?", status: "open", d: "vla.cpp runs on a 3090 but serves one request at a time. Armory, Robion and ROSA batch across robots on L40S, H200 or a multi-GPU server. FirmVLA measured a GB10 (the DGX Spark chip) against an RTX PRO 6000: pi0.5 capacity fell from 12 to 2 and SmolVLA from 58 to 14 under its 410 ms batch limit.", test: "Fill the measurement grid below at 1 to 3 arms." },
   { t: "Do the scheduling ideas apply to policies that are not chunked diffusion or flow models?", status: "open", d: "Armory and ROSA centre on pi0.5 and GR00T. vla.cpp lists OpenVLA-OFT but with no batching study. Whether OpenVLA-style policies create a refill deadline is not covered.", test: "Check what action horizon our OpenVLA and TurboVLA configs actually emit." },
-  { t: "How much staleness does our task tolerate?", status: "partial", d: "Armory says dynamic manipulation degrades sharply with stale chunks. vla.cpp's SmolVLA went from 49/50 to 19/50 when executing 50 actions per chunk instead of 16.", test: "Sweep injected delay and execution horizon on stack_bowls and record success." },
-  { t: "Do hard guarantees beat Armory-style lookahead on real robots?", status: "open", d: "FirmVLA reports zero violations in its own trials. It is a workshop abstract.", test: "Read the full FirmVLA paper when available, then compare against Lookahead on our hardware." }
+  { t: "How much staleness does our task tolerate?", status: "partial", d: "Armory says dynamic manipulation degrades sharply with stale chunks. vla.cpp's SmolVLA went from 49/50 to 19/50 when executing 50 actions per chunk instead of 16. FirmVLA finds tolerance depends on the policy: its action reserve covers 5 missed refills in a row for SmolVLA and pi0.5, 3 for X-VLA and 1 for GR00T N1.7.", test: "Sweep injected delay and execution horizon on stack_bowls and record success." },
+  { t: "Do hard guarantees beat Armory-style lookahead on real robots?", status: "open", d: "FirmVLA reports zero violations in simulation against its own adaptation of Armory Lookahead. Its guarantee needs a known fleet and timings that stay inside the slot, and 1000 ms stalls still cause violations.", test: "Compare a reservation schedule against Lookahead on our hardware with real arms." }
 ];
 
 const CLAIMS = [
@@ -307,7 +308,9 @@ const CLAIMS = [
   { claim: "Cloud serving gives 18-24% lower SLO attainment than edge at 24 robots per model", grade: "reported", source: "Robion", since: "2026-10-13" },
   { claim: "Request-rate capping gives 3.18x SLO-qualified throughput at 64 robots", grade: "reported", source: "ROSA", since: "2026-10-13" },
   { claim: "Executing fewer actions per chunk raised SmolVLA success from 19/50 to 49/50 on Orin Nano", grade: "reported", source: "vla.cpp", since: "2026-10-13" },
-  { claim: "Keeping leftover actions on a missed refill raises success from 41.2% to 79.8%", grade: "reported", source: "FirmVLA (abstract)", since: "2026-10-13" },
+  { claim: "Keeping leftover actions on a missed refill raises success from 41.2% to 79.8%", grade: "reported", source: "FirmVLA", since: "2026-10-13" },
+  { claim: "GR00T N1.7 success depends on where misses fall: 62/64 vs 28/64 at the same served fraction", grade: "reported", source: "FirmVLA", since: "2026-10-13" },
+  { claim: "On a GB10, pi0.5 batch capacity is 2 vs 12 on an RTX PRO 6000 under a 410 ms limit", grade: "reported", source: "FirmVLA", since: "2026-10-13" },
   { claim: "Scheduling by remaining action buffer helps at our fleet size and tasks", grade: "hypothesis", source: "Not tested by us", since: "2026-10-13" }
 ];
 
@@ -327,7 +330,7 @@ $("papers-list").innerHTML = PAPERS.map(p => `
     <div class="paper-head">
       <span class="date">${esc(p.date)}</span>
       <span class="name"><a href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.name)}</a></span>
-      ${badge(p.lane, "tag")}<span class="fine">read: ${esc(p.depth)}</span>
+      ${badge(p.lane, "tag")}
     </div>
     <dl class="fields">
       <dt>Question</dt><dd>${esc(p.q)}</dd>
