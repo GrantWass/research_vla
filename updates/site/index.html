@@ -191,7 +191,6 @@ td:first-child { font-weight: 600; white-space: nowrap; }
       </svg>
     </div>
     <div class="edges" id="edges"></div>
-    <p class="fine" id="edge-note"></p>
   </section>
 
   <section id="papers">
@@ -241,7 +240,6 @@ const EDGES = [
   { k: "C", pair: "Robion → ROSA", why: "ROSA places heterogeneous robot models across a cluster and is not a serving system for concurrent execution or GPU sharing. Robion cites ROSA throughout, including in its traffic controller design." },
   { k: "D", pair: "FirmVLA → Armory", why: "FirmVLA describes Armory as lookahead batching for robots that share one policy, and uses it as a baseline. FirmVLA handles mixed policies and replaces best-effort scheduling with a precomputed schedule that guarantees per-robot (m,k,r) service." }
 ];
-const EDGE_NOTE = "Arrow reasons are how the newer paper describes the older one. A and D were checked against the papers' own text.";
 
 const PAPERS = [
   { name: "vla.cpp", date: "2026-06-06", lane: "Runtime", url: "https://arxiv.org/abs/2606.08094",
@@ -320,7 +318,6 @@ const badge = (g, cls) => `<span class="badge b-${esc(cls || g)}">${esc(g)}</spa
 const $ = id => document.getElementById(id);
 
 $("m-updated").textContent = "Last edited " + LAST_UPDATE;
-$("edge-note").textContent = EDGE_NOTE;
 
 $("edges").innerHTML = EDGES.map(e =>
   `<div class="edge-row"><span class="k">${esc(e.k)}</span><span class="pair">${esc(e.pair)}</span><span class="why">${esc(e.why)}</span></div>`).join("");
