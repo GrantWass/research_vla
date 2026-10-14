@@ -132,42 +132,50 @@ td:first-child { font-weight: 600; white-space: nowrap; }
   <section id="map">
     <div class="sec-head">
       <h2>How the papers relate</h2>
-      <p>Time runs left to right, layers top to bottom. An arrow points from the newer paper to the one it responds to.</p>
+      <p>Time runs left to right, layers top to bottom. An arrow points from the newer paper to the earlier idea it extends or answers.</p>
     </div>
     <div class="svgwrap">
-      <svg class="tl" viewBox="0 0 1220 370" role="img" aria-label="Timeline of eleven VLA serving papers by layer, with arrows showing which paper responds to which">
+      <svg class="tl" viewBox="0 0 1220 470" role="img" aria-label="Timeline of eleven VLA serving papers by layer, with arrows showing which paper responds to which">
         <rect class="lane" x="0" y="22" width="1220" height="100"/>
         <rect class="lane" x="0" y="122" width="1220" height="100"/>
         <rect class="lane" x="0" y="222" width="1220" height="100"/>
+        <rect class="lane" x="0" y="322" width="1220" height="100"/>
         <text class="lane-label" x="10" y="38">FLEET AND PLACEMENT</text>
         <text class="lane-label" x="10" y="138">SCHEDULING</text>
         <text class="lane-label" x="10" y="238">RUNTIME</text>
-        <g class="grid"><line x1="100" y1="22" x2="100" y2="322"/><line x1="270" y1="22" x2="270" y2="322"/></g>
-        <text class="month" x="100" y="344" text-anchor="middle">Feb 2026</text>
-        <text class="month" x="270" y="344" text-anchor="middle">Mar</text>
+        <text class="lane-label" x="10" y="338">EDGE VS CLOUD</text>
+        <g class="grid"><line x1="100" y1="22" x2="100" y2="422"/><line x1="270" y1="22" x2="270" y2="422"/></g>
+        <text class="month" x="100" y="444" text-anchor="middle">Feb 2026</text>
+        <text class="month" x="270" y="444" text-anchor="middle">Mar</text>
 
-        <rect class="node" x="25" y="244" width="150" height="56" rx="2"/>
-        <text class="nname" x="100" y="268" text-anchor="middle">VLA-Perf</text>
-        <text class="nsub" x="100" y="286" text-anchor="middle">Feb 20</text>
+        <rect class="node" x="25" y="344" width="150" height="56" rx="2"/>
+        <text class="nname" x="100" y="368" text-anchor="middle">VLA-Perf</text>
+        <text class="nsub" x="100" y="386" text-anchor="middle">Feb 20</text>
 
-        <rect class="node" x="195" y="144" width="150" height="56" rx="2"/>
-        <text class="nname" x="270" y="168" text-anchor="middle">Offload or Overload</text>
-        <text class="nsub" x="270" y="186" text-anchor="middle">Mar 18</text>
+        <rect class="node" x="195" y="344" width="150" height="56" rx="2"/>
+        <text class="nname" x="270" y="368" text-anchor="middle">Offload or Overload</text>
+        <text class="nsub" x="270" y="386" text-anchor="middle">Mar 18</text>
 
         <rect class="node" x="195" y="244" width="150" height="56" rx="2"/>
         <text class="nname" x="270" y="268" text-anchor="middle">OxyGen</text>
         <text class="nsub" x="270" y="286" text-anchor="middle">Mar</text>
+        <path class="edge" d="M195 372 H183"/>
+        <path class="tip" d="M179 372 l10 -5 v10 z"/>
+        <g><circle class="dot" cx="185" cy="356" r="10"/><text class="dotl" x="185" y="360">F</text></g>
+        <path class="edge" d="M875 372 H353"/>
+        <path class="tip" d="M349 372 l10 -5 v10 z"/>
+        <g><circle class="dot" cx="612" cy="372" r="10"/><text class="dotl" x="612" y="376">G</text></g>
         <g transform="translate(340 0)">
         <g class="grid">
-          <line x1="100" y1="22" x2="100" y2="322"/><line x1="270" y1="22" x2="270" y2="322"/>
-          <line x1="440" y1="22" x2="440" y2="322"/><line x1="610" y1="22" x2="610" y2="322"/>
-          <line x1="780" y1="22" x2="780" y2="322"/>
+          <line x1="100" y1="22" x2="100" y2="422"/><line x1="270" y1="22" x2="270" y2="422"/>
+          <line x1="440" y1="22" x2="440" y2="422"/><line x1="610" y1="22" x2="610" y2="422"/>
+          <line x1="780" y1="22" x2="780" y2="422"/>
         </g>
-        <text class="month" x="100" y="344" text-anchor="middle">Jun 2026</text>
-        <text class="month" x="270" y="344" text-anchor="middle">Jul</text>
-        <text class="month" x="440" y="344" text-anchor="middle">Aug</text>
-        <text class="month" x="610" y="344" text-anchor="middle">Sep</text>
-        <text class="month" x="780" y="344" text-anchor="middle">Oct</text>
+        <text class="month" x="100" y="444" text-anchor="middle">Jun 2026</text>
+        <text class="month" x="270" y="444" text-anchor="middle">Jul</text>
+        <text class="month" x="440" y="444" text-anchor="middle">Aug</text>
+        <text class="month" x="610" y="444" text-anchor="middle">Sep</text>
+        <text class="month" x="780" y="444" text-anchor="middle">Oct</text>
 
         <path class="edge" d="M365 172 C300 172 270 150 270 100"/>
         <path class="tip" d="M270 96 l-5 10 h10 z"/>
@@ -182,6 +190,12 @@ td:first-child { font-weight: 600; white-space: nowrap; }
         <g><circle class="dot" cx="452" cy="114" r="10"/><text class="dotl" x="452" y="118">B</text></g>
         <g><circle class="dot" cx="442" cy="62" r="10"/><text class="dotl" x="442" y="66">C</text></g>
         <g><circle class="dot" cx="612" cy="172" r="10"/><text class="dotl" x="612" y="176">D</text></g>
+        <path class="edge" d="M610 244 V108"/>
+        <path class="tip" d="M610 104 l-5 10 h10 z"/>
+        <g><circle class="dot" cx="610" cy="216" r="10"/><text class="dotl" x="610" y="220">E</text></g>
+        <path class="edge" d="M365 272 H183"/>
+        <path class="tip" d="M179 272 l10 -5 v10 z"/>
+        <g><circle class="dot" cx="272" cy="272" r="10"/><text class="dotl" x="272" y="276">H</text></g>
 
         <rect class="node" x="25" y="244" width="150" height="56" rx="2"/>
         <text class="nname" x="100" y="268" text-anchor="middle">vla.cpp</text>
@@ -211,9 +225,9 @@ td:first-child { font-weight: 600; white-space: nowrap; }
         <text class="nname" x="610" y="268" text-anchor="middle">KerColle</text>
         <text class="nsub" x="610" y="286" text-anchor="middle">Sep 16</text>
 
-        <rect class="node" x="535" y="144" width="150" height="56" rx="2"/>
-        <text class="nname" x="610" y="168" text-anchor="middle">VLA-ULAP</text>
-        <text class="nsub" x="610" y="186" text-anchor="middle">Sep 26</text>
+        <rect class="node" x="535" y="344" width="150" height="56" rx="2"/>
+        <text class="nname" x="610" y="368" text-anchor="middle">VLA-ULAP</text>
+        <text class="nsub" x="610" y="386" text-anchor="middle">Sep 26</text>
 
         <text class="note" x="195" y="272">Not cited by Armory or Robion</text>
         </g>
@@ -278,7 +292,11 @@ const EDGES = [
   { k: "A", pair: "Armory → ROSA", why: "ROSA uses a static provisioning schedule for known workloads and assumes synchronous execution. Armory models closed-loop starvation and each robot's execution state. ROSA's own text agrees it assumes a known, profiled workload." },
   { k: "B", pair: "Robion → Armory", why: "Armory schedules robots with few pending actions first, but does not optimize inference time against per-request SLOs and treats the VLA as one pipeline." },
   { k: "C", pair: "Robion → ROSA", why: "ROSA places heterogeneous robot models across a cluster and is not a serving system for concurrent execution or GPU sharing. Robion cites ROSA throughout, including in its traffic controller design." },
-  { k: "D", pair: "FirmVLA → Armory", why: "FirmVLA describes Armory as lookahead batching for robots that share one policy, and uses it as a baseline. FirmVLA handles mixed policies and replaces best-effort scheduling with a precomputed schedule that guarantees per-robot (m,k,r) service." }
+  { k: "D", pair: "FirmVLA → Armory", why: "FirmVLA describes Armory as lookahead batching for robots that share one policy, and uses it as a baseline. FirmVLA handles mixed policies and replaces best-effort scheduling with a precomputed schedule that guarantees per-robot (m,k,r) service." },
+  { k: "E", pair: "KerColle → Robion", why: "Robion overlaps the VLM and action stages on two GPU streams and partitions SMs in software. KerColle shows the dispatcher still leaves the action phase under 3% Tensor Core use, and fixes it in hardware (pi0.5 about 19-22% more throughput). Same idea of overlapping the two stages, pushed one layer down." },
+  { k: "F", pair: "Offload or Overload → VLA-Perf", why: "VLA-Perf predicts from a roofline that a server GPU over Wi-Fi beats on-device compute. Offload or Overload measures that choice on real pi0.5 hardware and adds what the model leaves out: added delay lowers accuracy, compression lowers accuracy, and sharing a GPU raises latency." },
+  { k: "G", pair: "VLA-ULAP → Offload or Overload", why: "Offload or Overload shows 10 ms of added delay costing pi0.5 accuracy. VLA-ULAP responds by calling the remote VLA 45-77% less often and filling the gaps with a small local model." },
+  { k: "H", pair: "PhyAI → vla.cpp", why: "Both put a model-adapter layer under one shared runtime so many architectures run through the same engine. PhyAI adds CUDA Graph replay, profiled kernels, scheduling and cloud rollout; vla.cpp adds portability to 3090s, Orin and Apple silicon." }
 ];
 
 const PAPERS = [
