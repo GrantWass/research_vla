@@ -50,7 +50,7 @@ section { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
 .sec-head p { color: var(--muted); }
 
 .svgwrap { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); }
-svg.tl { display: block; min-width: 760px; width: 100%; height: auto; }
+svg.tl { display: block; min-width: 980px; width: 100%; height: auto; }
 .tl .lane { fill: var(--bg); stroke: var(--line); }
 .tl .lane-label { font: 500 11px var(--mono); fill: var(--muted); letter-spacing: 0.08em; }
 .tl .month { font: 11px var(--mono); fill: var(--muted); }
@@ -127,13 +127,29 @@ td:first-child { font-weight: 600; white-space: nowrap; }
       <p>Time runs left to right, layers top to bottom. An arrow points from the newer paper to the one it responds to.</p>
     </div>
     <div class="svgwrap">
-      <svg class="tl" viewBox="0 0 880 370" role="img" aria-label="Timeline of five VLA serving papers by layer, with arrows showing which paper responds to which">
-        <rect class="lane" x="0" y="22" width="880" height="100"/>
-        <rect class="lane" x="0" y="122" width="880" height="100"/>
-        <rect class="lane" x="0" y="222" width="880" height="100"/>
+      <svg class="tl" viewBox="0 0 1220 370" role="img" aria-label="Timeline of eight VLA serving papers by layer, with arrows showing which paper responds to which">
+        <rect class="lane" x="0" y="22" width="1220" height="100"/>
+        <rect class="lane" x="0" y="122" width="1220" height="100"/>
+        <rect class="lane" x="0" y="222" width="1220" height="100"/>
         <text class="lane-label" x="10" y="38">FLEET AND PLACEMENT</text>
         <text class="lane-label" x="10" y="138">SCHEDULING</text>
         <text class="lane-label" x="10" y="238">RUNTIME</text>
+        <g class="grid"><line x1="100" y1="22" x2="100" y2="322"/><line x1="270" y1="22" x2="270" y2="322"/></g>
+        <text class="month" x="100" y="344" text-anchor="middle">Feb 2026</text>
+        <text class="month" x="270" y="344" text-anchor="middle">Mar</text>
+
+        <rect class="node" x="25" y="244" width="150" height="56" rx="2"/>
+        <text class="nname" x="100" y="268" text-anchor="middle">VLA-Perf</text>
+        <text class="nsub" x="100" y="286" text-anchor="middle">Feb 20</text>
+
+        <rect class="node" x="195" y="144" width="150" height="56" rx="2"/>
+        <text class="nname" x="270" y="168" text-anchor="middle">Offload or Overload</text>
+        <text class="nsub" x="270" y="186" text-anchor="middle">Mar 18</text>
+
+        <rect class="node" x="195" y="244" width="150" height="56" rx="2"/>
+        <text class="nname" x="270" y="268" text-anchor="middle">OxyGen</text>
+        <text class="nsub" x="270" y="286" text-anchor="middle">Mar</text>
+        <g transform="translate(340 0)">
         <g class="grid">
           <line x1="100" y1="22" x2="100" y2="322"/><line x1="270" y1="22" x2="270" y2="322"/>
           <line x1="440" y1="22" x2="440" y2="322"/><line x1="610" y1="22" x2="610" y2="322"/>
@@ -180,6 +196,7 @@ td:first-child { font-weight: 600; white-space: nowrap; }
         <text class="nsub" x="780" y="186" text-anchor="middle">Oct 4</text>
 
         <text class="note" x="195" y="272">Not cited by Armory or Robion</text>
+        </g>
       </svg>
     </div>
     <div class="edges" id="edges"></div>
@@ -245,6 +262,24 @@ const EDGES = [
 ];
 
 const PAPERS = [
+  { name: "VLA-Perf", date: "2026-02-20", lane: "Runtime", url: "https://arxiv.org/abs/2602.18397",
+    q: "How fast can a VLA run on a given GPU and network, and how should models and inference systems be designed to hit 10 Hz to 100 Hz control?",
+    how: "NVIDIA Research. An analytical roofline model: each operator costs the larger of its compute time and memory time, and network transfers add latency plus bytes over bandwidth. Validated against a Triton pi0 on an RTX 4090 at 73-83% of the roofline. Models pi0 (2.7B) and scaled variants up to 81B on Jetson Thor, RTX 4090, A100, H100 and B100, over Ethernet, Wi-Fi 6/7, 4G, 5G and cloud paths.",
+    reported: "pi0 without network: Thor 19.0 Hz, RTX 4090 32.2 Hz, A100 61.7 Hz, H100 162.5 Hz, B100 314.4 Hz. The action expert is memory-bound everywhere. 10 to 50 denoising steps costs 2.15x latency, while chunk size 50 to 250 adds 11%. An RTX 4090 over Wi-Fi beats on-device Thor, and a B100 beats on-device even over 5G. Asynchronous inference raises throughput 2.63x on Wi-Fi 7 and 5.99x on 5G. Splitting model between device and server is usually slower than device only (KV-cache download 43.7 ms on Wi-Fi 7, 257.7 ms on 5G).",
+    assumes: "Optimistic upper bound at peak compute and bandwidth, ignoring launch overhead. Batch size 1, one accelerator per component, manipulation only. Task quality is taken as acceptable.",
+    gap: "No batching across robots, scheduling or shared-server contention. pi0.5 is not modeled. The effect of asynchronous staleness on control quality is left to future work." },
+  { name: "Offload or Overload", date: "2026-03-18", lane: "Scheduling", url: "https://arxiv.org/abs/2603.18284",
+    q: "How do onboard, edge and cloud GPUs trade off memory, accuracy, latency, power, bandwidth and multi-robot sharing for mobile manipulation?",
+    how: "Microsoft and UC Berkeley measurement study. Workloads include pi0.5 fine-tuned on a bimanual SO-101 (tape handover, 70 s window, real-time chunking), VLMaps, GraphEQA, nvblox and DreamZero. Robots: Stretch 3, TurtleBot 4, SO-101. GPUs: Orin Nano, Orin AGX, Thor onboard; L4 server and DGX Spark at the edge; Azure A100 as cloud reference. Wi-Fi 6 and a private 5G testbed.",
+    reported: "pi0.5 action-chunk latency about 60 ms on A100, 144 ms on Thor, 440 ms on Orin AGX, with task accuracy 80%, 80% and 30%. Adding 10 ms mean one-way latency (SD 15 ms) dropped pi0.5 accuracy on the DGX Spark from 80% to 70%, and the A100 held 80%. Three cameras of lossless 640x480 at 30 FPS need about 100 Mbps, and H.264 at 12 or 6.5 Mbps lowered accuracy. On an A100, batch 4 runs pi0.5 1.6x faster than sequential. Time-slicing raises pi0.5 latency 75%, unthrottled MPS 230%, and capping a co-located VLMaps at 10% of SMs held the increase to 3%.",
+    assumes: "Small fleets (up to four requests), one fine-tuned task on one arm setup, emulated network delay from a fixed distribution, one Wi-Fi access point.",
+    gap: "No scheduler or admission control, only measurements. Edge-GPU figures are sparse and no offloading threshold is given. Does not combine batching with chunk state." },
+  { name: "OxyGen", date: "2026-03", lane: "Runtime", url: "https://arxiv.org/abs/2603.14371",
+    q: "How can one on-device VLA run language generation and action generation in parallel from the same observations without contention?",
+    how: "Tsinghua AIR. Treats the KV cache as a shared resource. The observation is prefilled once and shared between the action and language experts, and in-flight language requests from different frames are batched together under a fixed per-frame token budget so the action deadline holds. Built on openpi with pi0.5 on an RTX 4090 and Jetson AGX Thor, plus a humanoid with onboard Thor.",
+    reported: "Up to 3.7x over isolated execution, with over 200 tokens/s of language and 70 Hz action frequency together. On an RTX 4090 action frequency stays near 60 Hz as decoding grows, while the baseline falls from 49.9 to 19.1 Hz. About 27 Hz on Thor. On the real robot, language latency fell from 822.3 to 195.4 ms and total inference from 1030 to 393 ms. Memory rose about 15% (6.43 to 7.41 GB) and energy per request fell up to 78%. LIBERO success stayed within about 0.8 points.",
+    assumes: "One mixture-of-transformers VLA with an action and a language expert. The per-frame token budget is calibrated offline for a target rate and device.",
+    gap: "Single robot and single model. No SLOs, multi-robot serving or cloud. Gains depend on large batches and small per-frame decoding budgets. Measures inference speed, not closed-loop rollouts." },
   { name: "vla.cpp", date: "2026-06-06", lane: "Runtime", url: "https://arxiv.org/abs/2606.08094",
     q: "Can one portable runtime execute many VLA architectures outside each model's training stack, on whatever processor and memory a robot has?",
     how: "C++ runtime on ggml and llama.cpp with GGUF weights and no PyTorch at execution time. Shared loading and tensor execution, with per-model adapters for attention and action heads. A C++ server returns action chunks over ZeroMQ. Flow-matching policies cache observation-dependent conditioning across solver steps within a request. A tensor-core path for ternary weights.",
@@ -279,6 +314,9 @@ const PAPERS = [
 ];
 
 const MATRIX = [
+  { p: "VLA-Perf", unit: "Operator (roofline)", obj: "Hz ceiling by hardware and network", models: "pi0 and scaled variants", hw: "Thor, 4090, A100, H100, B100", ev: "Analytical model, checked on a 4090" },
+  { p: "Offload or Overload", unit: "Workload placement", obj: "Accuracy, latency, power, sharing", models: "pi0.5, VLMaps, GraphEQA, nvblox", hw: "Orin, Thor, L4, DGX Spark, A100", ev: "Real SO-101, Stretch 3, TurtleBot 4" },
+  { p: "OxyGen", unit: "KV cache across tasks", obj: "Action rate while generating language", models: "pi0.5", hw: "RTX 4090, Jetson Thor", ev: "LIBERO, 1 real humanoid" },
   { p: "vla.cpp", unit: "One inference", obj: "Portability, latency, memory", models: "11 models", hw: "3060/3090/5070, Orin, M4, CPUs", ev: "LIBERO-Object, UR10e, ALOHA" },
   { p: "ROSA", unit: "Whole factory", obj: "Productivity under SLO", models: "GR00T N1.6, pi0.5, Qwen2.5-VL", hw: "8x H200", ev: "64 virtual robots, 1 real Franka" },
   { p: "Armory", unit: "Robot's chunk buffer", obj: "Throughput without starvation", models: "pi0.5", hw: "1 L40S", ev: "Sim fleets, 10 real PiPER arms" },
@@ -290,10 +328,16 @@ const TRENDS = [
   { t: "The objective keeps tightening", d: "Single-request latency, then factory productivity, then starvation avoidance, then guaranteed service per robot." },
   { t: "The unit of scheduling shrinks", d: "A whole inference, a robot's action buffer, a GPU stream and its SMs, a sequence of refills." },
   { t: "Runtime and serving are still separate", d: "The one paper that covers edge-class GPUs (vla.cpp: 3090, Orin) has no batching. The papers that batch across robots use L40S, H200 or a multi-GPU server. Nothing covers multi-robot serving on edge-class hardware." },
+  { t: "Offloading depends on network delay", d: "VLA-Perf models a server GPU beating on-device compute over Wi-Fi and 5G. Offload or Overload measures pi0.5 on the DGX Spark falling from 80% to 70% with 10 ms mean added one-way delay. Both are single-robot results." },
   { t: "Real-robot evidence is thin", d: "ROSA uses one Franka arm, Armory 10 PiPER arms, vla.cpp small samples in quasi-static scenes. Robion and FirmVLA evaluate on LIBERO. Dynamic manipulation is mostly untested." }
 ];
 
 const PI05 = [
+  { src: "Offload or Overload", dev: "A100 / Thor / Orin AGX", what: "Action-chunk latency (SO-101 task)", val: "about 60 / 144 / 440 ms" },
+  { src: "Offload or Overload", dev: "A100 / Thor / Orin AGX", what: "Task accuracy", val: "80% / 80% / 30%" },
+  { src: "Offload or Overload", dev: "DGX Spark", what: "Accuracy with 10 ms mean (SD 15) added one-way delay", val: "80% to 70%" },
+  { src: "Offload or Overload", dev: "A100", what: "Batch 4 vs sequential; time-slicing latency penalty", val: "1.6x faster; +75%" },
+  { src: "OxyGen", dev: "RTX 4090 / Thor", what: "Action frequency while also generating language", val: "about 60 Hz / 27 Hz" },
   { src: "Armory", dev: "L40S", what: "Inference time, batch 1 / batch 5", val: "73 ms / 211 ms" },
   { src: "Armory", dev: "H100", what: "Inference time, batch 1 / batch 5", val: "42.3 ms / 87.2 ms" },
   { src: "Armory", dev: "L40S + 10 PiPER arms", what: "Throughput gain from Lookahead scheduling", val: "up to 18%" },
@@ -312,6 +356,10 @@ const QUESTIONS = [
 ];
 
 const CLAIMS = [
+  { claim: "pi0.5 on a DGX Spark drops from 80% to 70% with 10 ms mean added one-way delay", grade: "reported", source: "Offload or Overload", since: "2026-10-13" },
+  { claim: "Sharing a GPU by time-slicing raises pi0.5 latency 75%; capping the other workload at 10% of SMs holds it to 3%", grade: "reported", source: "Offload or Overload", since: "2026-10-13" },
+  { claim: "Sharing one observation's KV cache across action and language cuts real-robot total inference from 1030 to 393 ms", grade: "reported", source: "OxyGen", since: "2026-10-13" },
+  { claim: "pi0 reaches 32.2 Hz on an RTX 4090 and 19.0 Hz on Jetson Thor at batch 1", grade: "reported", source: "VLA-Perf", since: "2026-10-13" },
   { claim: "Heterogeneous action-chunk consumption breaks naive batching heuristics", grade: "reported", source: "Armory", since: "2026-10-13" },
   { claim: "Lookahead scheduling gives up to 18% higher throughput on 10 real PiPER arms (pi0.5, L40S)", grade: "reported", source: "Armory", since: "2026-10-13" },
   { claim: "Concurrent VLM and action stages with SM partitioning give 1.5x the robot load of a monolithic pipeline", grade: "reported", source: "Robion", since: "2026-10-13" },

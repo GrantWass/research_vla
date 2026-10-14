@@ -1,6 +1,33 @@
 # Update log (newest first). Plain text. The visual doc is notebook.html (separate).
 # One entry per paper. Dates are when we read it; paper dates are in the entry.
 
+------------------------------ 2026-10-13 · OxyGen ------------------------------
+Paper: OxyGen: Unified KV Cache Management for VLA Inference under Multi-Task Parallelism (Mar 2026, rev. May 2026, Tsinghua AIR)
+Link: https://arxiv.org/abs/2603.14371
+
+1. Insight: One on-device pi0.5-style model can run action generation and language generation from the same observation. Prefill the observation once and share its KV cache between the action and language experts; batch in-flight language requests from different frames under a fixed per-frame token budget so the action deadline holds.
+2. Results (reported): Up to 3.7x over isolated execution; over 200 tokens/s language with 70 Hz actions. RTX 4090 action rate stays near 60 Hz as decoding grows (baseline 49.9 to 19.1 Hz); about 27 Hz on Jetson Thor. Real humanoid with onboard Thor: language 822.3 to 195.4 ms, total inference 1030 to 393 ms. Memory +15% (6.43 to 7.41 GB), energy per request down up to 78%. Naive parallelism nearly doubles peak memory. LIBERO success within about 0.8 points of openpi.
+3. Limits: One model and expert layout (action + language), single robot, no SLOs, no multi-robot or cloud serving. Token budget is calibrated offline per device and rate. Measures inference speed, not closed-loop rollouts.
+4. Next: only relevant if our robot needs language output or a planner in the loop with pi0.5; the shared-prefill idea is the part to reuse.
+
+------------------------------ 2026-10-13 · Offload or Overload ------------------------------
+Paper: Offload or Overload: A Platform Measurement Study of Mobile Robotic Manipulation Workloads (Mar 18, 2026, Microsoft and UC Berkeley)
+Link: https://arxiv.org/abs/2603.18284
+
+1. Insight: Measures where manipulation and navigation workloads should run. For pi0.5 the deciding factors are GPU class (accuracy collapses on an Orin AGX), added network delay, video compression, and how the GPU is shared.
+2. Results (reported): pi0.5 fine-tuned on a bimanual SO-101 (tape handover, 70 s, real-time chunking). Action-chunk latency about 60 ms A100, 144 ms Thor, 440 ms Orin AGX; accuracy 80%, 80%, 30%. DGX Spark accuracy 80% to 70% with 10 ms mean (SD 15) added one-way delay; A100 held 80%. Three cameras lossless 640x480 at 30 FPS need about 100 Mbps; H.264 at 12 or 6.5 Mbps lowered accuracy. A100 batch 4: pi0.5 1.6x faster than sequential. Time-slicing raises pi0.5 latency 75%, unthrottled MPS 230%; capping VLMaps at 10% of SMs held it to 3% (VLMaps frame time +261%). Onboard stack needs about 50 GB.
+3. Limits: Up to four concurrent requests, one fine-tuned task on one arm setup, emulated delay from a fixed distribution, one Wi-Fi access point, battery-life gain is modeled. No scheduler.
+4. Next: reuse the delay-injection and accuracy comparison for our own arms; check how a 3090 and a DGX Spark compare on chunk latency.
+
+------------------------------ 2026-10-13 · VLA-Perf ------------------------------
+Paper: How Fast Can I Run My VLA? Demystifying VLA Inference Performance with VLA-Perf (Feb 20, 2026, NVIDIA Research)
+Link: https://arxiv.org/abs/2602.18397
+
+1. Insight: An analytical roofline model of VLA inference (compute vs memory per operator, plus network). The action expert is memory-bound on every GPU; vision and VLM are compute-bound except on Jetson Thor. Gives a ceiling on control rate per hardware and network before building anything.
+2. Results (reported): pi0 at batch 1, no network: Thor 19.0 Hz, RTX 4090 32.2, A100 61.7, H100 162.5, B100 314.4. Model scaling: B100 9.6 Hz at 81B; 4090 out of memory at 16.7B. 10 to 50 denoising steps costs 2.15x latency; chunk 50 to 250 adds 11%. Diffusion head 102x faster than autoregressive decoding at chunk 50. RTX 4090 over Wi-Fi beats on-device Thor; B100 beats on-device even over 5G. Async inference: 2.63x on Wi-Fi 7, 5.99x on 5G. Device/server model splits are usually slower than device only. Validated at 73-83% of roofline on a Triton pi0, 4090.
+3. Limits: Optimistic upper bound (ignores launch overhead); batch size 1 only; no scheduling or multi-robot contention; pi0.5 not modeled; staleness effect on control quality left open.
+4. Next: use it as the sanity ceiling when we measure pi0.5 on the 3090 and DGX Spark; compare measured against the roofline.
+
 ------------------------------ 2026-10-13 · FirmVLA ------------------------------
 Paper: FirmVLA: Sequence-SLO Serving for Heterogeneous VLA Fleets (Oct 4, 2026, UT Dallas)
 Link: https://openreview.net/forum?id=lW9ZhfLCOK
