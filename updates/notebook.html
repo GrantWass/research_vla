@@ -127,7 +127,7 @@ td:first-child { font-weight: 600; white-space: nowrap; }
       <p>Time runs left to right, layers top to bottom. An arrow points from the newer paper to the one it responds to.</p>
     </div>
     <div class="svgwrap">
-      <svg class="tl" viewBox="0 0 1220 370" role="img" aria-label="Timeline of eight VLA serving papers by layer, with arrows showing which paper responds to which">
+      <svg class="tl" viewBox="0 0 1220 370" role="img" aria-label="Timeline of eleven VLA serving papers by layer, with arrows showing which paper responds to which">
         <rect class="lane" x="0" y="22" width="1220" height="100"/>
         <rect class="lane" x="0" y="122" width="1220" height="100"/>
         <rect class="lane" x="0" y="222" width="1220" height="100"/>
@@ -194,6 +194,18 @@ td:first-child { font-weight: 600; white-space: nowrap; }
         <rect class="node" x="705" y="144" width="150" height="56" rx="2"/>
         <text class="nname" x="780" y="168" text-anchor="middle">FirmVLA</text>
         <text class="nsub" x="780" y="186" text-anchor="middle">Oct 4</text>
+
+        <rect class="node" x="365" y="244" width="150" height="56" rx="2"/>
+        <text class="nname" x="440" y="268" text-anchor="middle">PhyAI</text>
+        <text class="nsub" x="440" y="286" text-anchor="middle">Aug</text>
+
+        <rect class="node" x="535" y="244" width="150" height="56" rx="2"/>
+        <text class="nname" x="610" y="268" text-anchor="middle">KerColle</text>
+        <text class="nsub" x="610" y="286" text-anchor="middle">Sep 16</text>
+
+        <rect class="node" x="535" y="144" width="150" height="56" rx="2"/>
+        <text class="nname" x="610" y="168" text-anchor="middle">VLA-ULAP</text>
+        <text class="nsub" x="610" y="186" text-anchor="middle">Sep 26</text>
 
         <text class="note" x="195" y="272">Not cited by Armory or Robion</text>
         </g>
@@ -298,12 +310,30 @@ const PAPERS = [
     reported: "Up to 18% higher system throughput in real-world runs, about 2x fast-tier throughput over EDF in the one-fast-robot setting. pi0.5 on one L40S with 10 AgileX PiPER arms. pi0.5 takes about 73 ms at batch 1 and 211 ms at batch 5 on an L40S. Practical up to 50 ms one-way delay. Baselines are round robin and EDF. Naive heuristics work when robots are identical and fail when consumption rates differ.",
     assumes: "Plain batching on a single GPU, with no continuous batching, PagedAttention, chunked prefill or distributed inference. Stale chunks hurt dynamic manipulation more than quasi-static tasks.",
     gap: "Authors want chunk scheduling co-designed with LLM-style serving optimizations. Real-world results rest on 3 seeds and 1-minute rollouts. Lookahead depth 2 or 3 did not help." },
+  { name: "PhyAI", date: "2026-08", lane: "Runtime", url: "https://arxiv.org/abs/2608.03682",
+    q: "Can one inference runtime serve the same embodied policy for evaluation, cloud RL rollout, edge serving and onboard deployment instead of separate programs for each?",
+    how: "BUPT, Tsinghua, ModelBest and others. Model adapters hold architecture-specific logic (preprocessing, solver updates, cache validity). A shared runtime handles scheduling, CUDA Graph replay, fused kernels, profiled operator selection, quantization and data/tensor parallelism. Adds a control-time roofline that separates inference-bound from environment-bound control.",
+    reported: "Latency against the official path, batch 1: pi0.5 179.5 to 107.7 ms on Jetson Thor (1.67x) and 52.1 to 28.6 ms on an RTX 5090 (1.82x); pi0 321.0 to 121.5 ms on Thor and 127.5 to 31.5 ms on a 5090. On a Hopper GPU at batch 1 the pi0.5 action expert is 8.8% of FLOPs but 57.2% of latency. At batch 32 throughput is about 100 samples/s but a synchronized batch takes about 320 ms. Also covers GR00T N1.7, MiniCPM-Robot and Cosmos3. GR00T N1.7 on LIBERO-10: 91.8% vs 91.2% for the official code.",
+    assumes: "Latency is GPU model-runner time only, excluding capture, transport, queueing and tail latency. Batches are static. Data-parallel replicas run independently.",
+    gap: "No multi-robot scheduling and no several-checkpoints-at-once study; both are future work. Specialized runtimes (FlashRT, realtime-vla) are faster in some configurations, and comparisons are not all precision-matched. Closed-loop quality checked only for GR00T. RL speedups are projected." },
   { name: "Robion", date: "2026-09-14", lane: "Fleet", url: "https://arxiv.org/abs/2609.12075",
     q: "How do you meet per-request SLOs for many robots and several VLA models on a multi-GPU edge server when the stages run for milliseconds?",
     how: "VLM and action diffusion transformer run on two GPU streams in lockstep with fixed-size batches. SM partitioning for the VLM stream comes from a profiled table. Earliest-SLO-first scheduling across co-located models. An integer program places traffic across GPUs. Related work covers VLA systems, stage disaggregation, GPU sharing (MPS, MIG, green contexts), DiT serving and LLM serving.",
     reported: "6.7x the robot load of vLLM-Omni and 1.5x a monolithic pipeline at 98% SLO attainment. 8 models on 4 GPUs serve up to 64 robots. pi0 tensor-core use is 52% in the VLM stage and 15% in the action stage at batch 4. vLLM-Omni's per-step inspection costs 30-35% of latency. Cloud is 18-24% lower in SLO attainment than edge at 24 robots per model. About 6.8x lower hardware cost than Jetson AGX Thor on the robot. Evaluated on LIBERO.",
     assumes: "Two-stage VLM plus diffusion-action models, fixed-size batching, per-request SLOs.",
     gap: "Armory-style chunk state is not part of its scheduler." },
+  { name: "KerColle", date: "2026-09-16", lane: "Runtime", url: "https://arxiv.org/abs/2609.22335",
+    q: "Why does the GPU stay underused when the VLM and action phases of a VLA run on separate streams, and can the thread-block dispatcher fix it?",
+    how: "Toronto and MPI-SWS, accepted at PACT 2026. Each kernel gets offline-profiled intensity tags for Tensor Core, ALU and memory use, each SM keeps utilization counters, and the dispatcher admits blocks from the two kernels to fit the SM's unused headroom. Evaluated in Accel-Sim for RTX 4090 and 5090 on CogACT, Octo, GraspVLA and pi0.5, with traces captured on real GPUs.",
+    reported: "Up to 28% throughput gain and 20.5% on average. pi0.5 gains about 19% on an RTX 4090 and 22% on a 5090 (warp occupancy 17.9% to 25.0% on the 4090). Median SM throughput is 18-30% of peak and the action phase keeps Tensor Cores below 3% busy. The added state is about 765 bytes.",
+    assumes: "Hardware changes to the GPU dispatcher and a one-time offline profile per model (2-6 hours).",
+    gap: "Simulation only, no physical robot, and not deployable on current GPUs. Gains are smaller for compute-bound models such as pi0.5. Single-model, no multi-robot serving or deadlines." },
+  { name: "VLA-ULAP", date: "2026-09-26", lane: "Scheduling", url: "https://arxiv.org/abs/2609.18663",
+    q: "Can hybrid inference balance latency and onboard energy for billion-parameter VLA policies without losing task success?",
+    how: "Tokyo. A roughly 7.4M-parameter local model predicts an action chunk from camera views, proprioception and executed action history, and a fixed accumulator scheduler decides how often the remote VLA is called. Main pairing is GR00T N1.7 with the local model on a Jetson Orin Nano; pi0.5 appears as a LIBERO-Safety comparison.",
+    reported: "Local model 20.7 ms and 0.122 J per inference against 289.3 ms and 40.46 J for GR00T on an A6000. In simulation 45.3-77.3% fewer VLA calls while keeping 95.0-98.5% of baseline success. On a physical SO-101, 70.3-71.9% fewer VLA calls with no observed success loss over two pick-and-place tasks (75 trials each). Against pi0.5 with latency injected, +11.0 and +15.5 points success with about half the VLA calls.",
+    assumes: "A small local model trained per task from demonstrations or successful rollouts. Results are at selected operating points.",
+    gap: "Robots per server is not quantified. Armory, ROSA and Robion are not discussed. Physical evaluation is two bounded tabletop tasks, and latency in the pi0.5 comparison is injected, not measured." },
   { name: "FirmVLA", date: "2026-10-04", lane: "Scheduling", url: "https://openreview.net/forum?id=lW9ZhfLCOK",
     q: "Can robots running different VLA policies on one GPU get guaranteed service instead of best effort?",
     how: "Each robot states an (m,k,r) sequence SLO: served at least m of every k refills, never more than r misses in a row. Admission solves an exact integer program that gives each 500 ms GPU slot to one policy and reserves places for specific robots, and a checker verifies the schedule before a fleet is accepted. While serving, reservations go first and spare places go to waiting robots by distance-based priority. A timing check confirms inference, launch delay and request spread fit inside the slot. Batch capacity per policy is the largest batch that stays under 410 ms.",
@@ -320,7 +350,10 @@ const MATRIX = [
   { p: "vla.cpp", unit: "One inference", obj: "Portability, latency, memory", models: "11 models", hw: "3060/3090/5070, Orin, M4, CPUs", ev: "LIBERO-Object, UR10e, ALOHA" },
   { p: "ROSA", unit: "Whole factory", obj: "Productivity under SLO", models: "GR00T N1.6, pi0.5, Qwen2.5-VL", hw: "8x H200", ev: "64 virtual robots, 1 real Franka" },
   { p: "Armory", unit: "Robot's chunk buffer", obj: "Throughput without starvation", models: "pi0.5", hw: "1 L40S", ev: "Sim fleets, 10 real PiPER arms" },
+  { p: "PhyAI", unit: "Request across runtimes", obj: "Latency and rollout speed", models: "pi0, pi0.5, GR00T N1.7, Cosmos3", hw: "5090, Thor, A40, H100, H20", ev: "Latency, LIBERO-10 check, projected RL" },
   { p: "Robion", unit: "GPU stream and SMs", obj: "SLO attainment", models: "pi0 and 8 co-located models", hw: "4-GPU edge server", ev: "LIBERO" },
+  { p: "KerColle", unit: "Thread block on an SM", obj: "GPU overlap of VLM and action phases", models: "pi0.5, CogACT, Octo, GraspVLA", hw: "RTX 4090 and 5090 (simulated)", ev: "Accel-Sim traces" },
+  { p: "VLA-ULAP", unit: "Remote call vs local chunk", obj: "VLA calls and energy", models: "GR00T N1.7, pi0.5, others", hw: "Orin Nano, A6000", ev: "Sim suites, SO-101" },
   { p: "FirmVLA", unit: "Sequence of refills", obj: "Guaranteed (m,k,r)", models: "pi0.5, SmolVLA, X-VLA, GR00T N1.7", hw: "RTX PRO 6000, GB10", ev: "LIBERO episodes, up to 122 admitted robots" }
 ];
 
@@ -333,6 +366,9 @@ const TRENDS = [
 ];
 
 const PI05 = [
+  { src: "PhyAI", dev: "RTX 5090 / Thor", what: "Batch 1 latency, official path to PhyAI", val: "52.1 to 28.6 ms / 179.5 to 107.7 ms" },
+  { src: "PhyAI", dev: "Hopper GPU", what: "Action expert share of FLOPs vs latency at batch 1", val: "8.8% vs 57.2%" },
+  { src: "KerColle", dev: "RTX 4090 / 5090 (simulated)", what: "Throughput gain from better VLM and action overlap", val: "about 19% / 22%" },
   { src: "Offload or Overload", dev: "A100 / Thor / Orin AGX", what: "Action-chunk latency (SO-101 task)", val: "about 60 / 144 / 440 ms" },
   { src: "Offload or Overload", dev: "A100 / Thor / Orin AGX", what: "Task accuracy", val: "80% / 80% / 30%" },
   { src: "Offload or Overload", dev: "DGX Spark", what: "Accuracy with 10 ms mean (SD 15) added one-way delay", val: "80% to 70%" },
@@ -348,6 +384,7 @@ const PI05 = [
 ];
 
 const QUESTIONS = [
+  { t: "Can several pi0.5 checkpoints run on one GPU at once?", status: "open", d: "Offload or Overload measures co-location only against non-VLA workloads (time-slicing +75% pi0.5 latency, SM cap +3%). Robion co-locates 8 models but with its own stream scheduler. FirmVLA gives one policy per slot, and Armory batches robots on one shared policy. PhyAI lists several-checkpoint serving as future work. Same-architecture checkpoints with different weights are not batched together by any of them.", test: "Run two and then three pi0.5 checkpoints on one GPU under time-slicing, MPS and separate streams, and record chunk latency against a single checkpoint." },
   { t: "Does chunk-aware scheduling compose with intra-GPU stage concurrency for pi0.5?", status: "open", d: "Armory decides which robot goes next. Robion splits one GPU between the VLM and action stages. No paper reports both together.", test: "Add a time-until-the-robot-runs-dry priority to our batching and measure stall rate." },
   { t: "Where does cloud lose to edge?", status: "partial", d: "Robion reports cloud 18-24% lower SLO attainment at 24 robots per model. Armory stays practical up to 50 ms one-way delay. ROSA assumes wired or Wi-Fi 7.", test: "Measure our own round trip from the robot PC to each GPU box at our fleet size." },
   { t: "How many pi0.5 robots can one of our GPUs serve?", status: "partial", d: "FirmVLA's batch capacity under 410 ms is 12 on an RTX PRO 6000 and 2 on a GB10 (the DGX Spark chip). Armory measures 211 ms at batch 5 on an L40S. Nothing reports a 3090 or 1 to 3 arms.", test: "Measure pi0.5 latency by batch size on each of our devices, then compute capacity at our control rate." },

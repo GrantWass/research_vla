@@ -1,6 +1,33 @@
 # Update log (newest first). Plain text. The visual doc is notebook.html (separate).
 # One entry per paper. Dates are when we read it; paper dates are in the entry.
 
+------------------------------ 2026-10-13 · VLA-ULAP ------------------------------
+Paper: VLA-ULAP: Interleaving Cloud VLA Calls with Ultra-Lightweight Local Action Prediction at the Edge (Sep 26, 2026, University of Tokyo / Institute of Science Tokyo)
+Link: https://arxiv.org/abs/2609.18663
+
+1. Insight: A roughly 7.4M-parameter local model predicts an action chunk from camera views, proprioception and executed action history, and a fixed accumulator scheduler decides how often to call the remote VLA. Fewer remote calls means less latency exposure and energy.
+2. Results (reported): Local model 20.7 ms, 0.122 J on a Jetson Orin Nano vs GR00T N1.7 on an RTX A6000 289.3 ms, 40.46 J. Simulation: 45.3-77.3% fewer VLA calls, 95.0-98.5% of baseline success kept. Physical SO-101: 70.3-71.9% fewer VLA calls, no observed success loss, two tasks with 75 trials each. Against pi0.5 under injected latency on LIBERO-Safety: +11.0 and +15.5 points success with about half the calls.
+3. Limits: Per-task local model trained from demonstrations or successful rollouts. Operating points are selected. Robots per server not quantified. Latency in the pi0.5 comparison is injected. Main pairing is GR00T N1.7, not pi0.5.
+4. Next: if cloud calls per robot are the cost, this cuts load per robot; check whether the same reduction could raise robots per GPU under an Armory or FirmVLA style schedule.
+
+------------------------------ 2026-10-13 · KerColle ------------------------------
+Paper: KerColle: Unlocking Fine-Grained GPU Concurrency in Vision-Language-Action Models (Sep 16, 2026, University of Toronto and MPI-SWS, PACT 2026)
+Link: https://arxiv.org/abs/2609.22335
+
+1. Insight: When the VLM and action phases run on separate streams, the GPU thread-block dispatcher still fails to overlap them. In the action phase Tensor Cores stay below 3% busy and median SM throughput is 18-30% of peak. A dispatcher that tags kernels by Tensor Core, ALU and memory intensity and admits blocks to fit each SM's headroom fixes the overlap.
+2. Results (reported): Up to 28% throughput gain, 20.5% on average over CogACT, Octo, GraspVLA and pi0.5. pi0.5 gains about 19% on an RTX 4090 and 22% on a 5090; warp occupancy on the 4090 rises 17.9% to 25.0%. Added state about 765 bytes. Offline profile 2-6 hours per model.
+3. Limits: Needs GPU dispatcher and driver changes, so not deployable on current hardware. Evaluated in Accel-Sim on replayed traces; no robot experiments. Gains smaller for compute-bound models such as pi0.5. Single-model, no deadlines.
+4. Next: treat as an upper bound on what software stream overlap (Robion) leaves unused; no action for us on current GPUs.
+
+------------------------------ 2026-10-13 · PhyAI ------------------------------
+Paper: PhyAI: Real-Time Physical AI at the Edge, Scalable Rollouts in the Cloud (Aug 2026, BUPT, Tsinghua, ModelBest and others)
+Link: https://arxiv.org/abs/2608.03682
+
+1. Insight: One runtime with per-model adapters, CUDA Graph replay, fused kernels, profiled operator choice and quantization serves the same policy for evaluation, RL rollout, edge and onboard. Introduces a control-time roofline separating inference-bound from environment-bound control.
+2. Results (reported): Batch 1 latency, official path to PhyAI: pi0.5 179.5 to 107.7 ms on Jetson Thor (1.67x), 52.1 to 28.6 ms on an RTX 5090 (1.82x); pi0 321.0 to 121.5 ms on Thor, 127.5 to 31.5 ms on a 5090. On a Hopper GPU at batch 1 the pi0.5 action expert is 8.8% of FLOPs but 57.2% of latency. Batch 32 gives about 100 samples/s but a synchronized batch takes about 320 ms. GR00T N1.7 LIBERO-10: 91.8% vs 91.2% official.
+3. Limits: GPU runner time only (no capture, transport, queueing, tails). Static batches. No multi-robot scheduling or several-checkpoints serving (future work). Faster specialized runtimes exist for some configurations. RL gains projected.
+4. Next: use its pi0.5 numbers as a measured latency floor for the 5090 and Thor when we plan our own measurements; check whether its runtime supports loading several pi0.5 checkpoints at once.
+
 ------------------------------ 2026-10-13 · OxyGen ------------------------------
 Paper: OxyGen: Unified KV Cache Management for VLA Inference under Multi-Task Parallelism (Mar 2026, rev. May 2026, Tsinghua AIR)
 Link: https://arxiv.org/abs/2603.14371
