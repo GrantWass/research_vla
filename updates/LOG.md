@@ -5,10 +5,10 @@
 Paper: FirmVLA: Sequence-SLO Serving for Heterogeneous VLA Fleets (Oct 4, 2026; ODI 2026 workshop poster, UT Dallas)
 Link: https://openreview.net/forum?id=lW9ZhfLCOK
 
-1. Insight: Replaces best-effort scheduling with guarantees. Each robot states an (m,k,r) SLO (served at least m of every k refills, never more than r misses in a row). Admission solves an exact integer program that assigns each 500 ms GPU slot to one policy and reserves places for robots; the server serves reservations first, then fills spare places by distance-based priority. Where misses fall matters, and tolerance is policy-dependent: the action reserve covers 5 missed refills in a row for SmolVLA and pi0.5, 3 for X-VLA, 1 for GR00T N1.7.
+1. Insight: Replaces best-effort scheduling with guarantees. Each robot states an (m,k,r) SLO (served at least m of every k refills, never more than r misses in a row). Admission solves an exact integer program that assigns each 500 ms GPU slot to one policy and reserves places for robots; the server serves reservations first, then fills spare places by distance-based priority. Where misses fall matters, and tolerance is policy-dependent: with 10 actions executed per refill, the first stall comes at a miss run of 5 for SmolVLA and pi0.5, 3 for X-VLA, 1 for GR00T N1.7. pi0.5 holds 98.4% success at a run of 4 and 85.9% at the worst position of a run of 5.
 2. Results (reported): zero SLO violations on 6 fleets of 2 to 4 policies (pi0.5, SmolVLA, X-VLA, GR00T N1.7) with 14 to 122 admitted robots, and in 14 trials at 50-100% load. At 100% load on one SmolVLA server: DBP 65 violating windows, Armory Lookahead / EDF / round robin 784 each, same work done. Admission matches exhaustive search on 565 small fleets; 22 ms median at 10 robots, 76 ms at 80. Keeping leftover actions: 79.8% success vs 41.2% when discarded (3,584 LIBERO episodes). GR00T N1.7: 62/64 under miss pattern 0011 vs 28/64 under 1001 at equal served fraction. On a GB10 (DGX Spark chip) vs RTX PRO 6000: pi0.5 capacity 2 vs 12, SmolVLA 14 vs 58, cross-GPU fleet boundary 29 vs 122 robots.
 3. Limits: LIBERO simulation only, no physical robots described. Needs a known fleet and a single GPU; one policy per slot. Armory baseline is the authors' adaptation (depth-two lookahead, same slots). At 160 robots only one of three admission cases finished in 1 s. 1000 ms GPU stalls cause violations that recover in 1.0 to 3.5 s.
-4. Next: use its miss-pattern method on stack_bowls (which refill patterns does our policy tolerate?); check our OpenVLA and TurboVLA action reserve (L - H) to know how many missed refills they absorb.
+4. Next: use its miss-pattern method on stack_bowls with pi0.5 (which refill patterns does it tolerate?); pick the execution horizon H and compute how many missed refills the action reserve (L - H) absorbs.
 
 ------------------------------ 2026-10-13 · Robion ------------------------------
 Paper: Efficient Vision-Language-Action Management and Serving for Robot Factories (Sep 14, 2026)
@@ -17,7 +17,7 @@ Link: https://arxiv.org/abs/2609.12075
 1. Insight: VLA stages are millisecond-scale and underuse the GPU (pi0 tensor cores: 52% VLM stage, 15% action stage at batch 4). Running the VLM and action diffusion transformer on two GPU streams in lockstep, with SM partitioning for the VLM stream, beats both a monolithic pipeline and stage-disaggregated vLLM-Omni. Earliest-SLO-first scheduling plus an integer-program traffic controller handle several models across GPUs.
 2. Results (reported): 6.7x robot load vs vLLM-Omni and 1.5x vs monolithic at 98% SLO attainment. 8 models on 4 GPUs serve up to 64 robots. vLLM-Omni's per-step inspection costs 30-35% of latency. Cloud is 18-24% lower in SLO attainment than edge at 24 robots/model. About 6.8x lower hardware cost than Jetson AGX Thor on the robot. Evaluated on LIBERO.
 3. Limits: Does not use Armory-style chunk state. Criticism of Armory (ignores per-request SLOs, treats VLA as one pipeline) not checked against Armory.
-4. Next: read its evaluation section; check whether the edge-vs-cloud gap holds at our fleet size.
+4. Next: check whether the edge-vs-cloud gap holds for pi0.5 at our fleet size.
 
 ------------------------------ 2026-10-13 · Armory ------------------------------
 Paper: Action Chunk Scheduling for Batched Robot Policy Serving (Aug 2026)

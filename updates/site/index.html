@@ -126,7 +126,7 @@ td:first-child { font-weight: 600; white-space: nowrap; }
   <header>
     <div class="eyebrow">Living document</div>
     <h1>VLA Serving Notebook</h1>
-    <div class="meta"><span id="m-updated"></span></div>
+    <div class="meta"><span id="m-updated"></span><span>Primary model: pi0.5</span></div>
   </header>
 
   <section id="map">
@@ -213,6 +213,17 @@ td:first-child { font-weight: 600; white-space: nowrap; }
     <div class="trends" id="trends"></div>
   </section>
 
+  <section id="pi05">
+    <div class="sec-head">
+      <h2>pi0.5 reference numbers</h2>
+      <p>Every pi0.5 figure reported across the papers, for comparison against our own.</p>
+    </div>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Source</th><th>Device</th><th>Measurement</th><th>Value</th></tr></thead>
+      <tbody id="pi05-body"></tbody>
+    </table></div>
+  </section>
+
   <section id="questions">
     <div class="sec-head">
       <h2>Open questions</h2>
@@ -290,12 +301,23 @@ const TRENDS = [
   { t: "Real-robot evidence is thin", d: "ROSA uses one Franka arm, Armory 10 PiPER arms, vla.cpp small samples in quasi-static scenes. Robion and FirmVLA evaluate on LIBERO. Dynamic manipulation is mostly untested." }
 ];
 
+const PI05 = [
+  { src: "Armory", dev: "L40S", what: "Inference time, batch 1 / batch 5", val: "73 ms / 211 ms" },
+  { src: "Armory", dev: "H100", what: "Inference time, batch 1 / batch 5", val: "42.3 ms / 87.2 ms" },
+  { src: "Armory", dev: "L40S + 10 PiPER arms", what: "Throughput gain from Lookahead scheduling", val: "up to 18%" },
+  { src: "FirmVLA", dev: "RTX PRO 6000", what: "Batch capacity under 410 ms (slowest of 100 batches)", val: "12 (385.0 ms)" },
+  { src: "FirmVLA", dev: "GB10", what: "Batch capacity under 410 ms", val: "2" },
+  { src: "FirmVLA", dev: "RTX PRO 6000", what: "Chunk of 50 actions, execute 10 per refill: first stall at a miss run of", val: "5" },
+  { src: "FirmVLA", dev: "LIBERO, 64 episodes", what: "Success with a miss run of 4 / 5 / 6 at worst position, keeping leftover actions", val: "98.4% / 85.9% / 68.8%" },
+  { src: "FirmVLA", dev: "LIBERO", what: "Mean success keeping vs discarding leftover actions on missed refills", val: "87.4% vs 42.6%" },
+  { src: "ROSA", dev: "8x H200", what: "Served as a System 1 action model (JAX)", val: "no pi0.5-only figure" }
+];
+
 const QUESTIONS = [
-  { t: "Does chunk-aware scheduling compose with intra-GPU stage concurrency?", status: "open", d: "Armory decides which robot goes next. Robion splits one GPU between VLM and action stages. No paper reports both together.", test: "Add a time-until-the-robot-runs-dry priority to our batching and measure stall rate." },
+  { t: "Does chunk-aware scheduling compose with intra-GPU stage concurrency for pi0.5?", status: "open", d: "Armory decides which robot goes next. Robion splits one GPU between the VLM and action stages. No paper reports both together.", test: "Add a time-until-the-robot-runs-dry priority to our batching and measure stall rate." },
   { t: "Where does cloud lose to edge?", status: "partial", d: "Robion reports cloud 18-24% lower SLO attainment at 24 robots per model. Armory stays practical up to 50 ms one-way delay. ROSA assumes wired or Wi-Fi 7.", test: "Measure our own round trip from the robot PC to each GPU box at our fleet size." },
-  { t: "Does multi-robot serving work on 3090, DGX Spark, and RTX PRO 6000 class devices at 1 to 3 arms?", status: "open", d: "vla.cpp runs on a 3090 but serves one request at a time. Armory, Robion and ROSA batch across robots on L40S, H200 or a multi-GPU server. FirmVLA measured a GB10 (the DGX Spark chip) against an RTX PRO 6000: pi0.5 capacity fell from 12 to 2 and SmolVLA from 58 to 14 under its 410 ms batch limit.", test: "Fill the measurement grid below at 1 to 3 arms." },
-  { t: "Do the scheduling ideas apply to policies that are not chunked diffusion or flow models?", status: "open", d: "Armory and ROSA centre on pi0.5 and GR00T. vla.cpp lists OpenVLA-OFT but with no batching study. Whether OpenVLA-style policies create a refill deadline is not covered.", test: "Check what action horizon our OpenVLA and TurboVLA configs actually emit." },
-  { t: "How much staleness does our task tolerate?", status: "partial", d: "Armory says dynamic manipulation degrades sharply with stale chunks. vla.cpp's SmolVLA went from 49/50 to 19/50 when executing 50 actions per chunk instead of 16. FirmVLA finds tolerance depends on the policy: its action reserve covers 5 missed refills in a row for SmolVLA and pi0.5, 3 for X-VLA and 1 for GR00T N1.7.", test: "Sweep injected delay and execution horizon on stack_bowls and record success." },
+  { t: "How many pi0.5 robots can one of our GPUs serve?", status: "partial", d: "FirmVLA's batch capacity under 410 ms is 12 on an RTX PRO 6000 and 2 on a GB10 (the DGX Spark chip). Armory measures 211 ms at batch 5 on an L40S. Nothing reports a 3090 or 1 to 3 arms.", test: "Measure pi0.5 latency by batch size on each of our devices, then compute capacity at our control rate." },
+  { t: "How much staleness does stack_bowls tolerate with pi0.5?", status: "partial", d: "At 10 actions per refill, pi0.5 stalls from a miss run of 5. On LIBERO it holds 98.4% at a run of 4 and 85.9% at the worst position of a run of 5. Armory says dynamic manipulation degrades more than quasi-static tasks.", test: "Sweep injected delay and execution horizon on stack_bowls and record success." },
   { t: "Do hard guarantees beat Armory-style lookahead on real robots?", status: "open", d: "FirmVLA reports zero violations in simulation against its own adaptation of Armory Lookahead. Its guarantee needs a known fleet and timings that stay inside the slot, and 1000 ms stalls still cause violations.", test: "Compare a reservation schedule against Lookahead on our hardware with real arms." }
 ];
 
@@ -307,8 +329,8 @@ const CLAIMS = [
   { claim: "Request-rate capping gives 3.18x SLO-qualified throughput at 64 robots", grade: "reported", source: "ROSA", since: "2026-10-13" },
   { claim: "Executing fewer actions per chunk raised SmolVLA success from 19/50 to 49/50 on Orin Nano", grade: "reported", source: "vla.cpp", since: "2026-10-13" },
   { claim: "Keeping leftover actions on a missed refill raises success from 41.2% to 79.8%", grade: "reported", source: "FirmVLA", since: "2026-10-13" },
-  { claim: "GR00T N1.7 success depends on where misses fall: 62/64 vs 28/64 at the same served fraction", grade: "reported", source: "FirmVLA", since: "2026-10-13" },
-  { claim: "On a GB10, pi0.5 batch capacity is 2 vs 12 on an RTX PRO 6000 under a 410 ms limit", grade: "reported", source: "FirmVLA", since: "2026-10-13" },
+  { claim: "pi0.5 holds 98.4% success with a miss run of 4 and 85.9% at the worst position of a run of 5 (10 actions per refill)", grade: "reported", source: "FirmVLA", since: "2026-10-13" },
+  { claim: "pi0.5 batch capacity is 2 on a GB10 vs 12 on an RTX PRO 6000 under a 410 ms limit", grade: "reported", source: "FirmVLA", since: "2026-10-13" },
   { claim: "Scheduling by remaining action buffer helps at our fleet size and tasks", grade: "hypothesis", source: "Not tested by us", since: "2026-10-13" }
 ];
 
@@ -342,6 +364,9 @@ $("matrix").innerHTML = MATRIX.map(r =>
   `<tr><td>${esc(r.p)}</td><td>${esc(r.unit)}</td><td>${esc(r.obj)}</td><td>${esc(r.models)}</td><td>${esc(r.hw)}</td><td>${esc(r.ev)}</td></tr>`).join("");
 
 $("trends").innerHTML = TRENDS.map(t => `<div class="trend"><h3>${esc(t.t)}</h3><p>${esc(t.d)}</p></div>`).join("");
+
+$("pi05-body").innerHTML = PI05.map(r =>
+  `<tr><td>${esc(r.src)}</td><td>${esc(r.dev)}</td><td style="white-space:normal">${esc(r.what)}</td><td class="num">${esc(r.val)}</td></tr>`).join("");
 
 $("qs").innerHTML = QUESTIONS.map(q => `
   <div class="q">
