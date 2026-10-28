@@ -1,4 +1,4 @@
-.PHONY: policy-server policy-server-stop help test test-verbose setup check clean doctor inventory policies install-adapter setup-policy dry-run eval smoke smoke-all robot-venv robot-check teleop park status snapshot home move cans leader-restore policy policy-live record
+.PHONY: policy-server policy-server-stop help test test-verbose setup check clean doctor inventory policies install-adapter setup-policy dry-run eval smoke smoke-all robot-venv robot-check teleop park status snapshot home move cans leader-restore policy policy-live record offline-eval
 .DEFAULT: help
 
 # Repo venv when present (robot deps), else system python.
@@ -38,6 +38,7 @@ help:
 	@echo "make policy-server            Keep the pi0.5 policy loaded (run once, in its own terminal)"
 	@echo "make policy [CKPT_HF=.. INSTR=.. STEPS=300]  pi0.5 dry run on the close arm"
 	@echo "make policy-live [...]        Same, moving the arm (asks YES; hand on e-stop)"
+	@echo "make offline-eval DATA=demos/x_pi05 CKPTS=\"new=.. old=..\"  Checkpoints vs recorded action chunks (no robot)"
 	@echo "make teleop [SECONDS=300]     Far arm leads, close arm follows"
 	@echo "make record DIR=demos/x INSTR=\"...\" [EPISODES=10]  Teleop + record LeRobot demos"
 	@echo "make robot-check [ARM=1|2]    Read-only joint/camera check -> verify/piper_ARM/"
@@ -128,6 +129,12 @@ policy:
 
 policy-live:
 	$(LEROBOT_PY) -m real_robot.runner $(POLICY_FLAGS) --live
+
+# Checkpoints vs the recorded actions of a converted dataset; no robot (real_robot/offline_eval.py)
+OFFLINE_OUT ?= outputs/offline_eval
+offline-eval:
+	@test -n "$(DATA)" -a -n "$(CKPTS)" || (echo 'make offline-eval DATA=demos/<name>_pi05 CKPTS="new=outputs/<run>/checkpoints/last/pretrained_model old=..." [OFFLINE_OUT=..]'; exit 2)
+	$(LEROBOT_PY) -m real_robot.offline_eval --dataset $(DATA) $(foreach c,$(CKPTS),--ckpt $(c)) --out $(OFFLINE_OUT)
 
 EPISODES ?= 10
 record:
