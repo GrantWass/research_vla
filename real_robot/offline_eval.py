@@ -143,7 +143,7 @@ def plot(path: str, gt, preds: dict, idx, ks) -> bool:
 
 def run(dataset: str, ckpts: list[tuple[str, str]], out: str, seeds: int = 2,
         base_offset_deg: float = 90.0, max_episodes: int | None = None, fracs=FRACS,
-        log=print) -> dict:
+        episodes=None, log=print) -> dict:
     import torch
     from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
@@ -155,9 +155,10 @@ def run(dataset: str, ckpts: list[tuple[str, str]], out: str, seeds: int = 2,
                         delta_timestamps={"action": [i / meta.fps for i in range(50)]})
     ep_from = np.asarray(ds.meta.episodes["dataset_from_index"])[:max_episodes]
     ep_to = np.asarray(ds.meta.episodes["dataset_to_index"])[:max_episodes]
-    idx = sample_indices(ep_from, ep_to, fracs)
+    idx = [x for x in sample_indices(ep_from, ep_to, fracs) if episodes is None or x[0] in episodes]
+    n_ep = len({e for e, _, _ in idx})
     items = [ds[i] for _, _, i in idx]
-    log(f"{len(items)} frames from {len(ep_from)} episodes")
+    log(f"{len(items)} frames from {n_ep} episodes")
     gt = np.stack([it["action"].numpy() for it in items])
     pad = np.stack([it["action_is_pad"].numpy() for it in items])
     state = np.stack([it["observation.state"].numpy() for it in items])
@@ -183,14 +184,15 @@ def run(dataset: str, ckpts: list[tuple[str, str]], out: str, seeds: int = 2,
     summary.update({n: chunk_metrics(p[0], gt, pad, state) for n, p in preds.items()})
     spread = {n: float(np.degrees(np.abs(p[0, ..., :6] - p[1, ..., :6]).mean()))
               for n, p in preds.items() if len(p) > 1}
-    md = report_md(summary, spread, wrapper_diff, len(items), len(ep_from), fracs)
+    md = report_md(summary, spread, wrapper_diff, len(items), n_ep, fracs)
     open(os.path.join(out, "report.md"), "w").write(md)
     json.dump({"summary": summary, "seed_spread_deg": spread, "wrapper_max_abs_diff": wrapper_diff},
               open(os.path.join(out, "summary.json"), "w"), indent=1)
     np.savez(os.path.join(out, "preds.npz"), gt=gt, pad=pad, state=state, idx=np.array(idx), **preds)
 
     from PIL import Image
-    ks = sorted({len(fracs) // 2 + len(fracs) * e for e in (0, len(ep_from) // 3, 2 * len(ep_from) // 3)})
+    mid = [k for k, (_, f, _) in enumerate(idx) if f == fracs[len(fracs) // 2]]  # mid-episode frames
+    ks = sorted({mid[0], mid[len(mid) // 2], mid[-1]})
     for k in ks:
         e, f, _ = idx[k]
         im = np.concatenate([items[k][f"observation.images.{v}"].permute(1, 2, 0).numpy()
@@ -211,12 +213,14 @@ def main(argv=None) -> int:
     ap.add_argument("--seeds", type=int, default=2, help="noise seeds per frame (2+ also reports seed spread)")
     ap.add_argument("--base-offset-deg", type=float, default=90.0, help="as make policy's")
     ap.add_argument("--max-episodes", type=int, default=None)
+    ap.add_argument("--episodes", default=None, help="only these episodes, comma-separated (e.g. held-out ones)")
     ap.add_argument("--fracs", default=",".join(map(str, FRACS)),
                     help="points of each episode to sample, comma-separated in [0, 1]")
     args = ap.parse_args(argv)
     ckpts = [tuple(c.split("=", 1)) if "=" in c else (f"ckpt{i}", c) for i, c in enumerate(args.ckpt)]
     fracs = tuple(float(f) for f in args.fracs.split(","))
-    run(args.dataset, ckpts, args.out, args.seeds, args.base_offset_deg, args.max_episodes, fracs)
+    episodes = {int(e) for e in args.episodes.split(",")} if args.episodes else None
+    run(args.dataset, ckpts, args.out, args.seeds, args.base_offset_deg, args.max_episodes, fracs, episodes)
     return 0
 
 
