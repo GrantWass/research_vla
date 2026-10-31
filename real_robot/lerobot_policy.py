@@ -42,6 +42,11 @@ class LerobotPolicy:
       consecutive chunks differ only where the observation does. With fresh
       noise, replanning ~6x/s made the arm wobble (each joint reversed ~3x/s,
       live 2026-10-07). None: fresh noise per chunk.
+
+    Checkpoints trained with RELATIVE=1 (real_robot/relative_actions.py)
+    predict joints relative to the observed ones; self.relative is their
+    joint count (0 for absolute checkpoints) and returned chunks are absolute
+    either way.
     """
 
     def __init__(self, path: str, camera_map: dict[str, str], extra_state=None,
@@ -52,6 +57,9 @@ class LerobotPolicy:
         from lerobot.configs.policies import PreTrainedConfig
         from lerobot.policies.factory import get_policy_class, make_pre_post_processors
 
+        from .relative_actions import register, relative_joints
+
+        register()  # so a relative checkpoint's preprocessor loads
         cfg = PreTrainedConfig.from_pretrained(path)
         cfg.device = device
         if hasattr(cfg, "compile_model"):
@@ -63,6 +71,7 @@ class LerobotPolicy:
         self.policy = get_policy_class(cfg.type).from_pretrained(path, config=cfg)
         self.policy.to(device).eval()
         self.pre, self.post = make_pre_post_processors(cfg, pretrained_path=path)
+        self.relative = relative_joints(self.pre)
         self.torch = torch
         self.device = torch.device(device)
         self.camera_map = camera_map
@@ -92,6 +101,7 @@ class LerobotPolicy:
             state = np.concatenate([state, extra.astype(np.float32)])
         if state.shape != (self.state_dim,):
             raise ValueError(f"policy wants state ({self.state_dim},), got {state.shape}")
+        self.state = state
         raw = {"observation.state": state}
         for ours, theirs in self.camera_map.items():
             raw[f"observation.images.{theirs}"] = obs["images"][ours]
@@ -112,10 +122,18 @@ class LerobotPolicy:
             with self.torch.inference_mode():
                 chunk = self.policy.predict_action_chunk(self._batch(self.obs))
                 chunk = self.post(chunk)
-            out = chunk[0].float().cpu().numpy()  # (T, action_dim)
+            out = self.absolute(chunk[0].float().cpu().numpy(), self.state)  # (T, action_dim)
             out[:, 0] -= self.base_offset
             return out
         raise ValueError(f"unknown call {func_name!r}")
+
+    def absolute(self, chunk: np.ndarray, state: np.ndarray) -> np.ndarray:
+        """Postprocessed chunk -> joint angles, given the state the policy saw."""
+        if not self.relative:
+            return chunk
+        from .relative_actions import to_absolute
+
+        return to_absolute(chunk, np.asarray(state, dtype=chunk.dtype), self.relative)
 
     def close(self) -> None:
         pass

@@ -72,7 +72,7 @@ def predict(policy, item, seed: int) -> np.ndarray:
     torch.manual_seed(seed)
     with torch.inference_mode():
         out = policy.post(policy.policy.predict_action_chunk(policy.pre(batch)))
-    return out[0].float().cpu().numpy()
+    return policy.absolute(out[0].float().cpu().numpy(), item["observation.state"].numpy())
 
 
 def predict_live_path(policy, item, seed: int) -> np.ndarray:
