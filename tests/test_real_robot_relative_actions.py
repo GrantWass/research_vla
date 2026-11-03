@@ -11,7 +11,7 @@ try:
 
     from real_robot.relative_actions import (chunk_stats, relative_chunks, relative_joints,
                                              to_absolute, to_relative)
-    from real_robot.train_relative import _arg, with_action_stats
+    from real_robot.train_relative import _arg, loss_weights, rotation_weights, with_action_stats
 except ImportError:  # pragma: no cover
     np = None
 
@@ -74,6 +74,23 @@ class TestRelativeActions(unittest.TestCase):
         self.assertEqual(out["action"]["foo"][0], 1.0)
         self.assertIs(out["observation.state"], stats["observation.state"])
         self.assertEqual(stats["action"]["q01"][0], 0.0)                # input untouched
+
+    def test_rotation_weights(self):
+        state, action = np.zeros((100, 13)), np.zeros((100, 7))
+        action[80:, 5] = np.radians(10)                # J6 turns at frame 80
+        w = rotation_weights(np.zeros(100, int), action, state, factor=3.0)
+        np.testing.assert_array_equal(w[:31], 1.0)    # chunk (50 frames) ends before the turn
+        np.testing.assert_array_equal(w[31:], 3.0)
+        episode = np.r_[np.zeros(80), np.ones(20)].astype(int)
+        w = rotation_weights(episode, action, state, factor=3.0)
+        np.testing.assert_array_equal(w[:80], 1.0)    # chunks don't cross into the next episode
+        action[:, 4] = np.radians(10)                  # J5 is not a wrist-roll joint
+        np.testing.assert_array_equal(rotation_weights(episode, action, state, 3.0)[:80], 1.0)
+
+    def test_loss_weights_mean_one(self):
+        w = loss_weights("1,1,1,2,1.5,2,1")
+        self.assertAlmostEqual(w.mean(), 1.0)
+        self.assertAlmostEqual(w[3] / w[0], 2.0)
 
     def test_arg(self):
         argv = ["--dataset.root=demos/x_pi05", "--dataset.episodes=[1,2]"]
