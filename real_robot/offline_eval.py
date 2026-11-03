@@ -45,7 +45,10 @@ def chunk_metrics(pred, gt, pad, state, move_deg: float = 3.0) -> dict:
     pad (N, T) marks steps past the episode end (ignored). Joints are rad,
     reported in deg; the gripper is 0..1. direction: share of joints that
     really moved more than move_deg over the chunk that the prediction moved
-    the same way.
+    the same way. moving_err_deg / move_scale, per joint and only over frames
+    where that joint moved more than move_deg by the chunk end: |pred - gt| at
+    the chunk end, and predicted over true move size (holding still is 0).
+    The averages above hide joints that rarely move, like the wrist.
     """
     valid = ~pad
     err = np.abs(pred - gt)
@@ -54,6 +57,11 @@ def chunk_metrics(pred, gt, pad, state, move_deg: float = 3.0) -> dict:
     last = valid[:, -1]
     moved = np.abs(gt[last, -1, :6] - state[last, :6]) > np.radians(move_deg)
     same = np.sign(gt[last, -1, :6] - state[last, :6]) == np.sign(pred[last, -1, :6] - state[last, :6])
+    true_mv = np.abs(gt[last, -1, :6] - state[last, :6])
+    pred_mv = np.abs(pred[last, -1, :6] - state[last, :6])
+    end_err = np.abs(pred[last, -1, :6] - gt[last, -1, :6])
+    per_joint = lambda x: [float(x[moved[:, j], j].mean()) if moved[:, j].any() else float("nan")
+                           for j in range(6)]
     return {
         "joint_mae_deg": np.degrees(mae[:6]).tolist(),
         "joints_deg": float(np.degrees(mae[:6]).mean()),
@@ -61,6 +69,9 @@ def chunk_metrics(pred, gt, pad, state, move_deg: float = 3.0) -> dict:
         "by_horizon_deg": {f"t+{h + 1}": float(joint_err[:, h][valid[:, h]].mean())
                            if valid[:, h].any() else float("nan") for h in HORIZONS},
         "direction": float(same[moved].mean()) if moved.any() else float("nan"),
+        "moving_frac": moved.mean(0).tolist() if len(moved) else [float("nan")] * 6,
+        "moving_err_deg": np.degrees(per_joint(end_err)).tolist(),
+        "move_scale": (np.array(per_joint(pred_mv)) / np.array(per_joint(true_mv))).tolist(),
     }
 
 
@@ -105,6 +116,14 @@ def report_md(summary: dict, spread: dict, wrapper_diff: float | None, n: int, n
                      + f" | **{m['joints_deg']:.2f}** | {m['gripper']:.3f} | "
                      + " | ".join(f"{m['by_horizon_deg'][h]:.2f}" for h in hs)
                      + f" | {m['direction']:.0%} |")
+    lines += ["", "When the joint moves > 3 deg by t+50: error at t+50 (deg) / predicted over true move size "
+              "(1.00 = right size, holding still = 0).", "",
+              "| model | " + " | ".join(joints) + " |", "|---" * (len(joints) + 1) + "|"]
+    for name, m in summary.items():
+        lines.append(f"| {name} | " + " | ".join(f"{e:.2f} / {s:.2f}" for e, s in
+                                                  zip(m["moving_err_deg"], m["move_scale"])) + " |")
+    first = next(iter(summary.values()))
+    lines.append("| frames moving | " + " | ".join(f"{f:.0%}" for f in first["moving_frac"]) + " |")
     lines.append("")
     for name, s in spread.items():
         lines.append(f"- {name}: seed-to-seed spread {s:.2f} deg (mean |seed0 - seed1|)")

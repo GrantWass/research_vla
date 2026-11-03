@@ -52,6 +52,17 @@ class TestOfflineEval(unittest.TestCase):
         m = chunk_metrics(-self.gt, self.gt, self.pad, self.state)   # moves the wrong way
         self.assertEqual(m["direction"], 0.0)
 
+    def test_moving_joints(self):
+        self.gt[:3, :, 5] = 0.0                                        # J6 still in half the frames
+        pred = self.gt.copy()
+        pred[..., :6] *= 0.5                                           # moves half as far
+        m = chunk_metrics(pred, self.gt, self.pad, self.state)
+        self.assertEqual(m["moving_frac"][5], 0.5)
+        self.assertAlmostEqual(m["move_scale"][5], 0.5, places=6)
+        self.assertAlmostEqual(m["moving_err_deg"][5], 10.0, places=4)
+        hold = np.zeros_like(self.gt)
+        self.assertEqual(chunk_metrics(hold, self.gt, self.pad, self.state)["move_scale"][0], 0.0)
+
     def test_padded_steps_ignored(self):
         pred = self.gt.copy()
         pred[:, 40:] += 1.0                                            # garbage past the episode end
@@ -59,6 +70,7 @@ class TestOfflineEval(unittest.TestCase):
         m = chunk_metrics(pred, self.gt, self.pad, self.state)
         self.assertAlmostEqual(m["joints_deg"], 0.0, places=9)
         self.assertNotEqual(m["direction"], m["direction"])            # no frame has a full chunk: nan
+        self.assertNotEqual(m["move_scale"][0], m["move_scale"][0])
 
 
 if __name__ == "__main__":
