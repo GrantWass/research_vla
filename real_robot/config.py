@@ -34,6 +34,14 @@ class RobotConfig:
     # A requested jump this large means the policy and robot disagree badly
     # (wrong joint order, units, sign): stop instead of rate-limiting.
     abort_delta: float = 0.6
+    # True: a jump over abort_delta is logged and rate-limited (max_step_delta)
+    # instead of stopping the run. For known-flaky checkpoints only.
+    clamp_jumps: bool = False
+    # With SafetyFilter.filter(prev_cmd=...): stop if the command runs this far
+    # ahead of the measured joints (rad; not the gripper, which stays open on
+    # a held object): the arm is blocked or not following. Normal lag through
+    # 2 Hz smoothing at demo speed is ~0.4 rad (2026-10-28), hence 0.6.
+    max_tracking_error: float = 0.6
     # Linear map between policy gripper units ("sim", the units the policy was
     # trained in) and real gripper units (m).
     gripper_sim_range: list[float] = field(default_factory=lambda: [0.0, 1.0])

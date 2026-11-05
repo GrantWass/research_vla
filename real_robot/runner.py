@@ -78,11 +78,39 @@ def connect_policy(url: str, timeout_s: float):
                          request_timeout_s=timeout_s)
 
 
-def preflight(robot: RobotBackend, cfg: RobotConfig, safety: SafetyFilter) -> list[str]:
-    """Checks that need no policy. Returns problems (empty = OK)."""
+def checkpoint_problems(path: str | None, cfg: RobotConfig) -> list[str]:
+    """Config vs the dataset a local LeRobot checkpoint was trained on.
+
+    The rate and the gripper units have to match the conversion: the cube
+    models (piper_1_banana.json: 30 Hz, gripper 0..1 of 70 mm) run with
+    piper_1.json played back at 25 Hz and read the gripper as meters, and
+    the safety filter aborted on gripper jumps (2026-11-05).
+    """
+    try:
+        train = json.load(open(os.path.join(path, "train_config.json")))
+        root = train["dataset"]["root"]
+        fps = json.load(open(os.path.join(root, "meta", "info.json")))["fps"]
+        grip = json.load(open(os.path.join(root, "meta", "stats.json")))["action"]["max"][6]
+    except (TypeError, OSError, KeyError, IndexError, ValueError):
+        return []  # hub checkpoint or dataset not here: nothing to compare
     problems = []
+    if abs(fps - cfg.control_hz) > 0.5:
+        problems.append(f"config runs at {cfg.control_hz:g} Hz, the checkpoint's data ({root}) "
+                        f"is {fps:g} fps; use the config it was converted with")
+    if grip > 0.5 and cfg.gripper_sim_range[1] < 0.5:
+        problems.append(f"the checkpoint's gripper goes to {grip:.2f} (0..1 units) but the config "
+                        f"reads it in meters (gripper_sim_range {list(cfg.gripper_sim_range)}); "
+                        "use the config it was converted with (cube models: piper_1_banana.json)")
+    return problems
+
+
+def preflight(robot: RobotBackend, cfg: RobotConfig, safety: SafetyFilter,
+              lerobot: str | None = None) -> list[str]:
+    """Checks that need no policy. Returns problems (empty = OK)."""
+    problems = checkpoint_problems(lerobot, cfg)
     if not cfg.verified:
         problems.append("config.verified is false: joint limits/mapping are placeholders")
+    problems += getattr(robot, "control_problems", list)()
     q = robot.get_joint_state()
     try:
         safety.check_state(q)
@@ -97,16 +125,38 @@ def preflight(robot: RobotBackend, cfg: RobotConfig, safety: SafetyFilter) -> li
     return problems
 
 
+class _MonitorStop(Exception):
+    pass
+
+
+class DoneKey:
+    """stop_event for run(): set once `d` is pressed (real_robot/keys.KeyReader)."""
+
+    def __init__(self, reader):
+        self.reader, self.done = reader, False
+
+    def is_set(self) -> bool:
+        while (k := self.reader.get()) is not None:
+            self.done |= k in "dD"
+        return self.done
+
+
 def run(robot: RobotBackend, policy, cfg: RobotConfig, *, instruction: str,
         live: bool, speed: float = 1.0, max_steps: int = 500,
         execute_steps: int | None = None, log_dir: str | None = None,
         async_infer: bool = False, blend_steps: int = 0, ensemble_steps: int = 0,
-        smooth_hz: float = 0.0, stream_hz: float = 100.0) -> dict:
+        blend_from: str = "last",
+        smooth_hz: float = 0.0, stream_hz: float = 100.0, observer=None,
+        stop_event=None) -> dict:
     """One episode. Always leaves the robot holding position.
+
+    observer(images, q_real, step): called with every observation (e.g.
+    real_robot.jev.JevMonitor). stop_event: once set, the episode ends at the
+    next action with status "monitor_stop".
 
     async_infer: compute the next chunk in a background thread while the
     current one executes (see _async_loop), instead of pausing for each.
-    blend_steps, ensemble_steps (async only): smooth between chunks.
+    blend_steps, blend_from, ensemble_steps (async only): smooth between chunks.
     smooth_hz > 0: stream commands at stream_hz through a critically damped
     filter with this cutoff (real_robot/smoothing.py) instead of sending one
     per step. Dry-run streams too, into the log only.
@@ -123,6 +173,7 @@ def run(robot: RobotBackend, policy, cfg: RobotConfig, *, instruction: str,
     q = robot.get_joint_state()
     safety.check_state(q)
     virtual_q = q.copy()  # dry-run: pretend commands are tracked exactly
+    last_cmd = q.copy()  # rate limit from the last command, not the lagging arm
     stream_log: list = []
     streamer = None
     if smooth_hz > 0:
@@ -145,6 +196,8 @@ def run(robot: RobotBackend, policy, cfg: RobotConfig, *, instruction: str,
         images = robot.get_images()
         if not first_images:
             first_images.append(images)
+        if observer is not None:
+            observer(images, q_now, step)
         return build_obs(images, real_to_sim(q_now, cfg), instruction, cfg.camera_names)
 
     def infer(obs):
@@ -160,10 +213,12 @@ def run(robot: RobotBackend, policy, cfg: RobotConfig, *, instruction: str,
 
     def act(a_sim):
         """Send one action through the safety filter (or log it, dry-run)."""
-        nonlocal step, virtual_q
+        nonlocal step, virtual_q, last_cmd
+        if stop_event is not None and stop_event.is_set():
+            raise _MonitorStop
         current = robot.get_joint_state() if live else virtual_q
         target = sim_to_real(a_sim, cfg)
-        cmd = safety.filter(target, current)
+        cmd = last_cmd = safety.filter(target, current, prev_cmd=last_cmd)
         if streamer is not None:
             streamer.check()
             streamer.set_target(cmd)
@@ -181,7 +236,7 @@ def run(robot: RobotBackend, policy, cfg: RobotConfig, *, instruction: str,
         if async_infer:
             _async_loop(observe, infer, act, lambda: step, max_steps, execute_steps,
                         period, extra, bump_chunk=lambda: _bump(), blend_steps=blend_steps,
-                        ensemble_steps=ensemble_steps)
+                        ensemble_steps=ensemble_steps, blend_from=blend_from)
         else:
             while step < max_steps:
                 chunk = infer(observe())
@@ -194,6 +249,8 @@ def run(robot: RobotBackend, policy, cfg: RobotConfig, *, instruction: str,
                     if live:
                         time.sleep(max(0.0, period - (time.perf_counter() - tick)))
                 chunk_idx += 1
+    except _MonitorStop:
+        status = "monitor_stop"
     except SafetyAbort as e:
         status = f"safety_abort: {e}"
     except KeyboardInterrupt:
@@ -230,7 +287,8 @@ def run(robot: RobotBackend, policy, cfg: RobotConfig, *, instruction: str,
 
 
 def _async_loop(observe, infer, act, get_step, max_steps, execute_steps, period,
-                extra, bump_chunk, blend_steps: int = 0, ensemble_steps: int = 0) -> None:
+                extra, bump_chunk, blend_steps: int = 0, ensemble_steps: int = 0,
+                blend_from: str = "last") -> None:
     """Execute chunks at `period` while the next is inferred in a thread.
 
     Inference for the next chunk starts when the steps left before
@@ -248,6 +306,13 @@ def _async_loop(observe, infer, act, get_step, max_steps, execute_steps, period,
     chunk. Relative to the last action sent, so it stays continuous when the
     next switch comes before the blend ends (frequent replanning).
 
+    blend_from="plan": start the blend where the arm was heading (the last
+    action plus its last step) and shrink the gap to 0 over blend_steps.
+    From the last action ("last"), the switch step made no progress: each new
+    chunk starts ~1 step behind the arm's command (it is anchored on the
+    lagging measured joints), so the target paused every replan (~6 Hz, live
+    runs 2026-11-05) and the arm shook slightly as it moved.
+
     ensemble_steps: each step, average what every chunk observed within the
     last ensemble_steps steps says for that step (temporal ensembling, as in
     ACT), instead of following only the newest. One chunk's quirk then moves
@@ -262,7 +327,7 @@ def _async_loop(observe, infer, act, get_step, max_steps, execute_steps, period,
         chunk, chunk_step = infer(observe()), get_step()
         lat_steps = (time.perf_counter() - t0) / period
         n_exec = len(chunk) if execute_steps is None else min(execute_steps, len(chunk))
-        pending = last = offset = switch_step = None
+        pending = last = prev = offset = switch_step = None
         history = [(chunk, chunk_step)]  # chunks for ensembling, oldest first
         extra.update(skipped_actions=0, starved_steps=0)
         next_tick = time.perf_counter()
@@ -293,19 +358,25 @@ def _async_loop(observe, infer, act, get_step, max_steps, execute_steps, period,
                 a = np.mean([c[s_now - cs] for c, cs in history], axis=0)
             if blend_steps > 0 and last is not None and switch_step is not None:
                 k = get_step() - switch_step
-                if k == 0:
-                    offset = last - a
-                if k < blend_steps:
-                    a = a + offset * (1 - (k + 1) / (blend_steps + 1))
+                if blend_from == "plan":
+                    if k == 0:
+                        offset = (last if prev is None else 2 * last - prev) - a
+                    if k < blend_steps:
+                        a = a + offset * (1 - k / blend_steps)
+                else:
+                    if k == 0:
+                        offset = last - a
+                    if k < blend_steps:
+                        a = a + offset * (1 - (k + 1) / (blend_steps + 1))
             act(a)
-            last = a
+            prev, last = last, a
             next_tick += period
             time.sleep(max(0.0, next_tick - time.perf_counter()))
     finally:
         pool.shutdown(wait=True, cancel_futures=True)
 
 
-def main(argv=None) -> int:
+def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--backend", default="mock", choices=["mock", "piper"])
@@ -345,6 +416,9 @@ def main(argv=None) -> int:
     ap.add_argument("--blend-steps", type=int, default=0,
                     help="--async: crossfade from the old chunk to the new one over "
                          "this many steps instead of jumping (try 8)")
+    ap.add_argument("--blend-from", choices=["last", "plan"], default="last",
+                    help="--blend-steps: start from the last action sent, or from where it was "
+                         "heading (plan: no pause at each replan)")
     ap.add_argument("--compile", default=None, metavar="MODE",
                     help="--lerobot: torch.compile mode, e.g. max-autotune (default: eager)")
     ap.add_argument("--policy-server", nargs="?", const="default", metavar="SOCKET",
@@ -366,6 +440,46 @@ def main(argv=None) -> int:
     ap.add_argument("--log-dir", default=None)
     ap.add_argument("--preflight-only", action="store_true")
     ap.add_argument("--yes", action="store_true", help="skip the live confirmation prompt")
+    ap.add_argument("--park-when-done", action="store_true",
+                    help="--live: press d when the task is done to stop the policy and park the "
+                         "arm (as `make park`); it also parks when --max-steps runs out")
+    return ap
+
+
+def make_policy(args, robot: RobotBackend, cfg: RobotConfig):
+    """The policy main() would use for these args, warmed up."""
+    if not args.lerobot:
+        return connect_policy(args.url, args.timeout)
+    from .lerobot_policy import DEFAULT_SOCKET, LerobotPolicy, PolicyClient, PolicyProcess
+
+    kw = dict(path=args.lerobot,
+              camera_map=dict(kv.split(":") for kv in args.camera_map.split(",")),
+              base_offset=float(np.radians(args.base_offset_deg)),
+              compile_mode=args.compile, num_steps=args.denoise_steps,
+              noise_seed=args.noise_seed)
+    extra = robot.get_end_pose if args.end_pose_state else None
+    if args.policy_server:
+        addr = DEFAULT_SOCKET if args.policy_server == "default" else args.policy_server
+        policy = PolicyClient(addr, extra_state=extra, expect={
+            k: kw[k] for k in ("path", "camera_map", "base_offset")}
+            | {"noise_seed": args.noise_seed})
+        print(f"policy server: {policy.info}")
+    elif args.policy_process:
+        policy = PolicyProcess(extra_state=extra, **kw)
+    else:
+        policy = LerobotPolicy(extra_state=extra, **kw)
+    for i in range(args.warmup):
+        t0 = time.perf_counter()
+        policy.call(func_name="update_obs", obs=build_obs(
+            robot.get_images(), real_to_sim(robot.get_joint_state(), cfg),
+            args.instruction, cfg.camera_names))
+        policy.call(func_name="get_action")
+        print(f"warmup {i + 1}/{args.warmup}: {time.perf_counter() - t0:.1f} s")
+    return policy
+
+
+def main(argv=None) -> int:
+    ap = build_parser()
     args = ap.parse_args(argv)
 
     if not 0 < args.speed <= MAX_SPEED:
@@ -376,13 +490,15 @@ def main(argv=None) -> int:
             ap.error(f"--{name.replace('_', '-')} needs --async and must be >= 0")
     if args.speed_percent is not None and not 1 <= args.speed_percent <= 100:
         ap.error("--speed-percent must be in [1, 100]")
+    if args.park_when_done and not args.live:
+        ap.error("--park-when-done needs --live")
     cfg = load_config(args.config)
     if args.speed_percent is not None:
         cfg.arm_speed_percent = args.speed_percent
     robot = make_backend(args.backend, cfg)
     robot.connect()
     try:
-        problems = preflight(robot, cfg, SafetyFilter(cfg))
+        problems = preflight(robot, cfg, SafetyFilter(cfg), args.lerobot)
         for p in problems:
             print(f"PREFLIGHT: {p}")
         print("PREFLIGHT:", "OK" if not problems else f"{len(problems)} problem(s)")
@@ -397,46 +513,37 @@ def main(argv=None) -> int:
                 return 1
         log_dir = args.log_dir or os.path.join(
             "real_robot_logs", time.strftime("%Y%m%d-%H%M%S") + ("-live" if args.live else "-dry"))
-        if args.lerobot:
-            from .lerobot_policy import DEFAULT_SOCKET, LerobotPolicy, PolicyClient, PolicyProcess
+        policy = make_policy(args, robot, cfg)
+        done = None
+        if args.park_when_done:
+            from .keys import KeyReader
 
-            kw = dict(path=args.lerobot,
-                      camera_map=dict(kv.split(":") for kv in args.camera_map.split(",")),
-                      base_offset=float(np.radians(args.base_offset_deg)),
-                      compile_mode=args.compile, num_steps=args.denoise_steps,
-                      noise_seed=args.noise_seed)
-            extra = robot.get_end_pose if args.end_pose_state else None
-            if args.policy_server:
-                addr = DEFAULT_SOCKET if args.policy_server == "default" else args.policy_server
-                policy = PolicyClient(addr, extra_state=extra, expect={
-                    k: kw[k] for k in ("path", "camera_map", "base_offset")}
-                    | {"noise_seed": args.noise_seed})
-                print(f"policy server: {policy.info}")
-            elif args.policy_process:
-                policy = PolicyProcess(extra_state=extra, **kw)
-            else:
-                policy = LerobotPolicy(extra_state=extra, **kw)
-            for i in range(args.warmup):
-                t0 = time.perf_counter()
-                policy.call(func_name="update_obs", obs=build_obs(
-                    robot.get_images(), real_to_sim(robot.get_joint_state(), cfg),
-                    args.instruction, cfg.camera_names))
-                policy.call(func_name="get_action")
-                print(f"warmup {i + 1}/{args.warmup}: {time.perf_counter() - t0:.1f} s")
-        else:
-            policy = connect_policy(args.url, args.timeout)
+            done = DoneKey(KeyReader())
+            print("press d when the task is done: the policy stops and the arm parks")
         try:
             summary = run(robot, policy, cfg, instruction=args.instruction,
                           live=args.live, speed=args.speed, max_steps=args.max_steps,
                           execute_steps=args.execute_steps, log_dir=log_dir,
                           async_infer=args.async_infer, blend_steps=args.blend_steps,
+                          blend_from=args.blend_from,
                           ensemble_steps=args.ensemble_steps,
-                          smooth_hz=args.smooth_hz, stream_hz=args.stream_hz)
+                          smooth_hz=args.smooth_hz, stream_hz=args.stream_hz,
+                          stop_event=done)
         finally:
             policy.close()
+            if done is not None:
+                done.reader.close()
+        if done is not None and done.done:
+            summary["status"] = "done"
         print(json.dumps(summary, indent=2))
         print(f"logs: {log_dir}")
-        return 0 if summary["status"] == "ok" else 2
+        if done is not None:
+            if summary["status"] in ("ok", "done"):
+                print("parking: fold, face the table, damped stop, motors off")
+                robot.park()
+            else:  # aborted or interrupted: leave it holding where it stopped
+                print(f"not parking after {summary['status']}; arm holding (make park when clear)")
+        return 0 if summary["status"] in ("ok", "done") else 2
     finally:
         robot.close()
 

@@ -1,0 +1,53 @@
+{
+  "_note": "One Piper arm. Units: joints rad, gripper m. Limits are the spec sheet's, with J2 >= 0 and J3 <= 0 as the firmware accepts them. ik_guard reads joint_lower/upper, max_step_delta and control_hz; arm_tool.py reads the rest.",
+  "can_port": "can_piper1",
+  "speed_percent": 60,
+  "joint_lower": [
+    -2.618,
+    0.0,
+    -2.967,
+    -1.745,
+    -1.22,
+    -2.094,
+    0.0
+  ],
+  "joint_upper": [
+    2.618,
+    3.14,
+    0.0,
+    1.745,
+    1.22,
+    2.094,
+    0.1
+  ],
+  "max_step_delta": [
+    0.03,
+    0.03,
+    0.03,
+    0.05,
+    0.05,
+    0.05,
+    0.01
+  ],
+  "control_hz": 25.0,
+  "_ready": "ready: a pose off the joint limits to start teleop from (deg J1..J6). J1 -93.3 faces the table on our rig; set yours.",
+  "ready_deg": [
+    -93.3,
+    30,
+    -40,
+    0,
+    30,
+    0
+  ],
+  "_park": "park: fold with the base held (J2 0, J3 0, J5 36.8 deg), turn the base to home_base_deg, damped e-stop, wait, disable.",
+  "home_base_deg": -93.3,
+  "park_fold_deg": [
+    0.0,
+    0.0,
+    0.0,
+    36.78,
+    0.0
+  ],
+  "tool_speed_percent": 30,
+  "_tool": "arm_tool.py (make ready / park): firmware speed cap, percent"
+}

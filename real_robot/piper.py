@@ -13,6 +13,21 @@ from .safety import SafetyFilter
 MDEG_PER_RAD = 1000.0 * 180.0 / np.pi  # piper_sdk joints are 0.001 deg
 UM_PER_M = 1e6  # piper_sdk gripper stroke is 0.001 mm
 
+# Motor fault flags (piper_sdk FOC_Status) that stop a session. A cooled
+# overheat leaves motor_overheating + driver_error latched (far arm J5,
+# 2026-10-14/15) until cleared with JointConfig(clear_err=0xAE).
+MOTOR_FAULTS = ("voltage_too_low", "motor_overheating", "driver_overcurrent",
+                "driver_overheating", "collision_status", "driver_error_status", "stall_status")
+COOLED_FAULTS = {"motor_overheating", "driver_error_status"}
+# Close arm J5 reached 67 C holding the fold for a long idle (3.1 A,
+# 2026-10-15), shortly after the far arm's J5 tripped. Start no session above:
+MAX_MOTOR_C = 60.0
+
+
+class MotorsTooHot(RuntimeError):
+    pass
+
+
 # The folded pose every home() and park() ends in: J2/J3 at the firmware's
 # lowest accepted values, J5 at 36.8 deg. This is how the arms park; keep it.
 PARK_J2_TO_J6 = np.array([0.0, 0.0, 0.0, 0.642, 0.0])
@@ -44,21 +59,79 @@ class PiperBackend(RobotBackend):
         self.cameras = cameras
         self.arms: dict = {}
 
-    def connect(self, enable_timeout_s: float = 5.0) -> None:
+    def connect(self, enable_timeout_s: float = 5.0, enable: bool = True) -> None:
+        """enable=False connects without powering the motors (enable() later)."""
         for side, can in self.cfg.arms.items():
             arm = self.sdk_factory(can)
             arm.ConnectPort()
             self.arms[side] = arm
-            if self.passive:
-                continue
-            deadline = time.monotonic() + enable_timeout_s
-            while not arm.EnablePiper():
-                if time.monotonic() > deadline:
-                    raise RuntimeError(f"{side} Piper did not enable on "
-                                       f"{can}")
-                time.sleep(0.01)
+        if enable and not self.passive:
+            self.enable(enable_timeout_s)
         if self.cameras is None:
             self.cameras = Cameras(self.cfg.cameras, self.cfg.camera_names)
+
+    def enable(self, timeout_s: float = 5.0) -> None:
+        if self.passive:
+            raise RuntimeError("PiperBackend is passive; refusing to enable")
+        for side, arm in self.arms.items():
+            deadline = time.monotonic() + timeout_s
+            while not arm.EnablePiper():
+                if time.monotonic() > deadline:
+                    bad = [f"J{m['joint']}: {', '.join(m['faults'])}"
+                           for m in self.motor_health() if m["side"] == side and m["faults"]]
+                    raise RuntimeError(f"{side} Piper did not enable on {self.cfg.arms[side]}"
+                                       + (f" ({'; '.join(bad)})" if bad else ""))
+                time.sleep(0.01)
+
+    def motor_health(self) -> list[dict]:
+        """Per joint motor: temperatures (deg C, motor and driver), enabled, and
+        any fault flags, from the 0x261-0x266 feedback (also while disabled)."""
+        out = []
+        for side, arm in self.arms.items():
+            info = arm.GetArmLowSpdInfoMsgs()
+            for j in range(1, 7):
+                m = getattr(info, f"motor_{j}")
+                flags = vars(m.foc_status)
+                out.append({"side": side, "joint": j, "motor_c": int(m.motor_temp),
+                            "driver_c": int(m.foc_temp),
+                            "enabled": bool(flags.get("driver_enable_status")),
+                            "faults": [f for f in MOTOR_FAULTS if flags.get(f)]})
+        return out
+
+    def motors_on(self) -> bool:
+        return any(m["enabled"] for m in self.motor_health())
+
+    def control_problems(self) -> list[str]:
+        """Arms that will ignore our commands. The teach button on the arm puts
+        it in drag-teach mode (ctrl_mode 0x2): every command is then dropped
+        without an error, so a live run moves nothing (2026-11-03: four runs)."""
+        out = []
+        for side, arm in self.arms.items():
+            mode = arm.GetArmStatus().arm_status.ctrl_mode
+            if getattr(mode, "value", mode) == 0x2:
+                out.append(f"{side} arm is in drag-teach mode and ignores commands: "
+                           f"press the teach button on the arm once, firmly")
+        return out
+
+    def check_motors(self, max_c: float = MAX_MOTOR_C, log=print) -> None:
+        """Raise MotorsTooHot if a motor or driver is over max_c, or has a fault
+        other than a cooled-down overheat. That one stays latched (the driver
+        then refuses to enable) after the motor cools, so it is cleared here."""
+        problems = []
+        for m in self.motor_health():
+            hot = max(m["motor_c"], m["driver_c"])
+            name = f"{m['side']} J{m['joint']}"
+            if hot > max_c:
+                problems.append(f"{name} at {hot} C (limit {max_c:.0f})")
+            elif m["faults"] and set(m["faults"]) <= COOLED_FAULTS:
+                log(f"{name}: clearing a latched overheat fault (now {hot} C)")
+                self.arms[m["side"]].JointConfig(joint_num=m["joint"], set_zero=0,
+                                                 acc_param_is_effective=0, max_joint_acc=0,
+                                                 clear_err=0xAE)
+            elif m["faults"]:
+                problems.append(f"{name}: {', '.join(m['faults'])}")
+        if problems:
+            raise MotorsTooHot("; ".join(problems))
 
     def _read_arm(self, arm) -> list[float]:
         js = arm.GetArmJointMsgs().joint_state
@@ -168,6 +241,10 @@ class PiperLeader:
 
     def connect(self) -> None:
         self.arm.ConnectPort()
+        self.teach()
+
+    def teach(self) -> None:
+        """Into teaching mode (limp, broadcasting); restore_follower_mode() undoes it."""
         self.arm.MasterSlaveConfig(0xFA, 0, 0, 0)  # teaching input arm
         time.sleep(0.3)
 

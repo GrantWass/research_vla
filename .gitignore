@@ -41,3 +41,6 @@ Log/
 
 # Measured serving runs behind docs/serving.md (small JSONL; kept for reproducibility)
 !scripts/serve_bench/data/
+
+# Recorded demo datasets (large; keep out of git)
+demos/

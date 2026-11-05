@@ -51,6 +51,8 @@ def _confirm(args, what: str) -> bool:
 
 
 def status(args) -> int:
+    from .piper import COOLED_FAULTS, MAX_MOTOR_C
+
     for n in args.arms:
         cfg = load_config(config_path(n))
         can = cfg.arms["arm"]
@@ -65,6 +67,10 @@ def status(args) -> int:
         robot = _connect(n, passive=True)
         arm = robot.arms["arm"]
         q, pose = robot.get_joint_state(), robot.get_end_pose()
+        health = robot.motor_health()
+        if not np.any(q[:6]) and not any(m["motor_c"] or m["driver_c"] for m in health):
+            print("  no feedback (all zeros): the arm is powered off, or its controller is not talking")
+            continue
         st = arm.GetArmStatus().arm_status
         enabled = arm.GetArmEnableStatus()
         print(f"  joints deg  {_deg(q)}   gripper {q[6] * 1000:.1f} mm")
@@ -72,6 +78,16 @@ def status(args) -> int:
               f"rpy [{', '.join(f'{v:.0f}' for v in np.degrees(pose[3:]))}] deg")
         print(f"  mode {st.ctrl_mode}, status {st.arm_status}, error {st.err_code}, "
               f"motors {'on' if all(enabled) else 'off' if not any(enabled) else enabled}")
+        print("  motor C     [" + ", ".join(f"{m['motor_c']:7d}" for m in health) + "]   (driver "
+              + "/".join(str(m["driver_c"]) for m in health) + ")")
+        hot = max(max(m["motor_c"], m["driver_c"]) for m in health)
+        if hot > MAX_MOTOR_C:
+            print(f"  HOT: {hot} C, over the {MAX_MOTOR_C:.0f} C session limit; park and let it cool")
+        for m in health:
+            if m["faults"]:
+                print(f"  FAULT J{m['joint']}: {', '.join(m['faults'])}"
+                      + ("  (a cooled overheat: the next session clears it)"
+                         if set(m["faults"]) <= COOLED_FAULTS and hot <= MAX_MOTOR_C else ""))
         if cfg.home_base is not None:
             off = np.degrees(q[0] - cfg.home_base[0])
             print(f"  base {off:+.1f} deg from home (facing the table)"

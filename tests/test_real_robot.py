@@ -20,7 +20,7 @@ if np is not None:
     from real_robot.piper import PiperBackend
     from real_robot.config import RobotConfig, load_config
     from real_robot.mapping import real_to_sim, sim_to_real
-    from real_robot.runner import build_obs, chunk_to_array, main, preflight, run
+    from real_robot.runner import DoneKey, build_obs, checkpoint_problems, chunk_to_array, main, preflight, run
     from real_robot.safety import SafetyAbort, SafetyFilter
 
 REPO = os.path.join(os.path.dirname(__file__), "..")
@@ -58,7 +58,7 @@ class TestRealRobot(unittest.TestCase):
     def test_config_extends_base(self):
         cfg = load_config(os.path.join(REPO, "real_robot/configs/piper_1_banana.json"))
         self.assertEqual(cfg.arms, {"arm": "can_piper1"})  # from piper_1.json
-        self.assertEqual(cfg.joint_upper[6], 0.07)  # from piper.json
+        self.assertEqual(cfg.joint_upper[6], 0.1)  # from piper.json
         self.assertEqual(cfg.control_hz, 30.0)  # its own override
 
     def test_bad_config_rejected(self):
@@ -87,6 +87,33 @@ class TestRealRobot(unittest.TestCase):
         np.testing.assert_allclose(cmd, 0.15)  # limit clip
         self.assertGreaterEqual(sf.stats.rate_clips, 1)
         self.assertGreaterEqual(sf.stats.limit_clips, 1)
+
+    def test_safety_rate_limits_from_prev_cmd(self):
+        cfg = RobotConfig(max_step_delta=[0.1] * 7, abort_delta=1.0, max_tracking_error=0.25)
+        sf = SafetyFilter(cfg)
+        lagging = np.zeros(7)  # the arm has not moved yet
+        cmd = sf.filter(np.full(7, 0.5), lagging, prev_cmd=np.zeros(7))
+        np.testing.assert_allclose(cmd, 0.1)
+        cmd = sf.filter(np.full(7, 0.5), lagging, prev_cmd=cmd)
+        np.testing.assert_allclose(cmd, 0.2)  # leads the arm by 0.2, under 0.25
+        with self.assertRaises(SafetyAbort):  # 0.3 ahead of a stuck arm
+            sf.filter(np.full(7, 0.5), lagging, prev_cmd=cmd)
+
+    def test_safety_tracking_ignores_gripper(self):
+        cfg = RobotConfig(max_step_delta=[0.1] * 7, abort_delta=1.0, max_tracking_error=0.25)
+        sf = SafetyFilter(cfg)
+        held = np.zeros(7)
+        held[6] = 0.6  # gripper stopped open on an object, commanded closed
+        prev = np.zeros(7)
+        cmd = sf.filter(np.zeros(7), held, prev_cmd=prev)
+        self.assertAlmostEqual(cmd[6], 0.0)
+
+    def test_safety_jump_check_from_prev_cmd(self):
+        sf = SafetyFilter(RobotConfig(abort_delta=0.5, max_tracking_error=1.0))
+        prev = np.full(7, 0.4)
+        sf.filter(np.full(7, 0.6), np.zeros(7), prev_cmd=prev)  # 0.2 from prev: ok
+        with self.assertRaises(SafetyAbort):
+            sf.filter(np.full(7, 1.0), np.zeros(7), prev_cmd=prev)
 
     def test_safety_aborts_on_jump_and_nan(self):
         sf = SafetyFilter(RobotConfig(abort_delta=0.5))
@@ -179,6 +206,22 @@ class TestRealRobot(unittest.TestCase):
         # pause per chunk (0.6 + 4 * 0.05 = 0.8 s)
         self.assertLess(wall, 0.6 + infer_s + 0.07)
 
+    def test_blend_from_plan_keeps_moving_through_switches(self):
+        # Chunks anchored on a lagging arm start behind its command: blending
+        # from the last action paused the target at every switch.
+        cfg = RobotConfig(verified=True, control_hz=100.0)
+
+        def run_with(blend_from):
+            robot = MockBackend(cfg, lag=0.3)
+            run(robot, FakePolicy(lambda st, n: drift(st, n, step=0.002), chunk_len=20), cfg,
+                instruction="x", live=True, speed=1.0, max_steps=120, execute_steps=5,
+                async_infer=True, blend_steps=4, blend_from=blend_from)
+            return np.diff(np.array(robot.commands)[40:, 0])  # past the start-up
+
+        last, plan = run_with("last"), run_with("plan")
+        self.assertLess(last.min(), 0.0005)  # the pause at each replan
+        self.assertGreater(plan.min(), 0.001)  # keeps moving at about the plan's speed
+
     def test_async_blend_crossfades_between_chunks(self):
         cfg = RobotConfig(verified=True, control_hz=200.0)
 
@@ -259,6 +302,39 @@ class TestRealRobot(unittest.TestCase):
         self.assertIn("TimeoutError", s["status"])
         self.assertEqual(robot.held, 1)
 
+    def test_done_key_stops_the_run(self):
+        class Reader:
+            def __init__(self, keys):
+                self.keys = list(keys)
+
+            def get(self):
+                return self.keys.pop(0) if self.keys else None
+
+        done = DoneKey(Reader([None] * 5 + ["x", "d"]))
+        robot = MockBackend(self.cfg, lag=1.0)
+        s = run(robot, FakePolicy(drift, chunk_len=5), self.cfg, instruction="x",
+                live=True, speed=1.0, max_steps=50, stop_event=done)
+        self.assertEqual(s["status"], "monitor_stop")
+        self.assertTrue(done.done)
+        self.assertLess(len(robot.commands), 50)
+        self.assertEqual(robot.held, 1)
+
+    def test_checkpoint_problems_flags_config_mismatch(self):
+        with tempfile.TemporaryDirectory() as d:
+            ckpt, root = os.path.join(d, "ckpt"), os.path.join(d, "data")
+            os.makedirs(ckpt)
+            os.makedirs(os.path.join(root, "meta"))
+            json.dump({"dataset": {"root": root}}, open(os.path.join(ckpt, "train_config.json"), "w"))
+            json.dump({"fps": 30}, open(os.path.join(root, "meta", "info.json"), "w"))
+            json.dump({"action": {"max": [0] * 6 + [1.4]}},
+                      open(os.path.join(root, "meta", "stats.json"), "w"))
+            meters = RobotConfig(verified=True, control_hz=25.0, gripper_sim_range=[0.0, 0.07])
+            self.assertEqual(len(checkpoint_problems(ckpt, meters)), 2)
+            ok = RobotConfig(verified=True, control_hz=30.0, gripper_sim_range=[0.0, 1.0])
+            self.assertEqual(checkpoint_problems(ckpt, ok), [])
+        self.assertEqual(checkpoint_problems("hub/model", meters), [])
+        self.assertEqual(checkpoint_problems(None, meters), [])
+
     def test_preflight_flags_unverified_config(self):
         cfg = RobotConfig()
         probs = preflight(MockBackend(cfg), cfg, SafetyFilter(cfg))
@@ -281,6 +357,10 @@ class FakePiper:
         self.grip = 0  # 0.001 mm
         self.calls = []
         self.enable_tries = 0
+        self.ctrl_mode = 0x1  # CAN_CTRL; 0x2 = drag-teach (teach button)
+
+    def GetArmStatus(self):
+        return _NS(arm_status=_NS(ctrl_mode=self.ctrl_mode))
 
     def ConnectPort(self):
         self.calls.append("ConnectPort")
@@ -346,6 +426,14 @@ class TestPiper(unittest.TestCase):
         np.testing.assert_allclose(deg, [-93.3, 0, 0, 0, 36.8, 0], atol=0.1)  # base to home
         tail = [c for c in arm.calls if c == "DisablePiper" or c[0] == "EmergencyStop"]
         self.assertEqual(tail, [("EmergencyStop", 1), "DisablePiper", ("EmergencyStop", 2)])
+
+    def test_preflight_refuses_drag_teach_mode(self):
+        b, made = self.make()
+        made["can_piper1"].joints = [-93300, 0, 0, 0, 36800, 0]
+        self.assertEqual(b.control_problems(), [])
+        made["can_piper1"].ctrl_mode = 0x2
+        probs = preflight(b, b.cfg, SafetyFilter(b.cfg))
+        self.assertTrue(any("drag-teach" in p for p in probs))
 
     def test_home_folds_before_turning_base(self):
         b, made = self.make()

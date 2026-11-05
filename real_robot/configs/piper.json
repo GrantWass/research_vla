@@ -1,7 +1,7 @@
 {
-  "_note": "Shared AgileX Piper settings (firmware S-V1.8-3). Units: joints rad, gripper m. Limits are the spec sheet's, with J2 >= 0 / J3 <= 0 matching what the firmware accepts; the arms rest ~2 deg past those two, which SafetyFilter's 0.05 rad margin allows. Per-arm files extend this one. See docs/robot.md.",
+  "_note": "Shared AgileX Piper settings (firmware S-V1.8-3). Units: joints rad, gripper m. Limits are the spec sheet's, with J2 >= 0 / J3 <= 0 matching what the firmware accepts; the arms rest ~2 deg past those two, which SafetyFilter's 0.05 rad margin allows. Gripper: opens to 0.1 m (the close arm stops at 99.4 mm, the far arm reads up to 103; 2026-10-14), past the spec sheet's 0.07; gripper_*_range stays 0..0.07, so policies keep 1.0 = 70 mm. Per-arm files extend this one. See docs/robot.md.",
   "joint_lower": [-2.618, 0.0, -2.967, -1.745, -1.22, -2.094, 0.0],
-  "joint_upper": [2.618, 3.14, 0.0, 1.745, 1.22, 2.094, 0.07],
+  "joint_upper": [2.618, 3.14, 0.0, 1.745, 1.22, 2.094, 0.1],
   "max_step_delta": [0.03, 0.03, 0.03, 0.05, 0.05, 0.05, 0.01],
   "abort_delta": 0.5,
   "gripper_sim_range": [0.0, 0.07],

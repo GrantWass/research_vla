@@ -82,3 +82,43 @@ class SmoothStreamer:
         self.stop_event.set()
         if self.thread is not None:
             self.thread.join(timeout=1.0)
+
+
+class OneEuroFilter:
+    """Speed-adaptive low-pass (Casiez et al., CHI 2012), per element of a vector.
+
+    The cutoff rises with the filtered speed: cutoff = min_cutoff + beta * |v|.
+    Held still, a target is smoothed at min_cutoff (removes jitter); moving
+    fast, the cutoff goes up and the lag goes down. Samples may arrive at an
+    irregular rate (dt from their timestamps). Used on the Quest IK targets
+    (real_robot/quest/ik_guard.py), ahead of SmoothStreamer.
+    """
+
+    def __init__(self, min_cutoff: float = 1.0, beta: float = 0.5, d_cutoff: float = 1.0):
+        if min_cutoff <= 0 or d_cutoff <= 0 or beta < 0:
+            raise ValueError("min_cutoff and d_cutoff must be positive, beta >= 0")
+        self.min_cutoff, self.beta, self.d_cutoff = min_cutoff, beta, d_cutoff
+        self.reset()
+
+    def reset(self) -> None:
+        self.x = self.dx = self.t = None
+
+    @staticmethod
+    def _alpha(cutoff, dt: float):
+        tau = 1.0 / (2 * np.pi * cutoff)
+        return 1.0 / (1.0 + tau / dt)
+
+    def __call__(self, x, t: float) -> np.ndarray:
+        x = np.asarray(x, dtype=np.float64)
+        if self.x is None or t <= self.t:
+            if self.x is None:
+                self.x, self.dx = x.copy(), np.zeros_like(x)
+            self.t = t if self.t is None else self.t
+            return self.x.copy()
+        dt = t - self.t
+        dx = (x - self.x) / dt
+        self.dx = self.dx + self._alpha(self.d_cutoff, dt) * (dx - self.dx)
+        cutoff = self.min_cutoff + self.beta * np.abs(self.dx)
+        self.x = self.x + self._alpha(cutoff, dt) * (x - self.x)
+        self.t = t
+        return self.x.copy()

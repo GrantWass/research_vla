@@ -12,7 +12,7 @@ try:
     from real_robot.config import RobotConfig
     from real_robot.backends import MockBackend
     from real_robot.runner import run
-    from real_robot.smoothing import SmoothStreamer
+    from real_robot.smoothing import OneEuroFilter, SmoothStreamer
 except ImportError:  # pragma: no cover
     np = None
 
@@ -72,6 +72,44 @@ class TestSmoothStreamer(unittest.TestCase):
         self.assertEqual(robot.held, 1)
         sent = np.asarray(robot.commands)[:, 0]
         self.assertLess(np.abs(np.diff(sent, 2)).max(), 1e-3)  # smooth: tiny accel per command
+
+
+@unittest.skipIf(np is None, "numpy not installed")
+class TestOneEuroFilter(unittest.TestCase):
+    def run_filter(self, f, xs, hz=25.0):
+        return np.array([f(x, i / hz) for i, x in enumerate(xs)])
+
+    def test_first_sample_passes_through(self):
+        f = OneEuroFilter()
+        np.testing.assert_allclose(f(np.array([0.3, -1.0]), 5.0), [0.3, -1.0])
+
+    def test_damps_jitter_when_still(self):
+        rng = np.random.default_rng(0)
+        xs = 0.5 + rng.normal(0, 0.02, size=(250, 1))  # held still, 1 deg of IK jitter
+        ys = self.run_filter(OneEuroFilter(min_cutoff=1.0, beta=0.5), xs)
+        self.assertLess(np.std(np.diff(ys[50:, 0])), 0.25 * np.std(np.diff(xs[50:, 0])))
+
+    def test_lags_less_when_fast(self):
+        def lag(speed, beta):  # steady ramp: how far behind the input after 4 s
+            xs = (np.arange(100) / 25.0 * speed)[:, None]
+            return xs[-1, 0] - self.run_filter(OneEuroFilter(min_cutoff=1.0, beta=beta), xs)[-1, 0]
+        fixed = lag(1.0, 0.0) / 1.0  # time lag, s
+        adaptive = lag(1.0, 0.5) / 1.0
+        self.assertLess(adaptive, 0.6 * fixed)
+        self.assertLess(lag(2.0, 0.5) / 2.0, adaptive)  # faster still: even less time lag
+
+    def test_irregular_and_repeated_timestamps(self):
+        f = OneEuroFilter()
+        f(np.zeros(2), 0.0)
+        y1 = f(np.ones(2), 0.05)
+        np.testing.assert_allclose(f(np.full(2, 5.0), 0.05), y1)  # same time: no update
+        y2 = f(np.ones(2), 0.30)  # a long gap moves further toward the input
+        self.assertTrue(np.all(y2 > y1))
+        self.assertTrue(np.all(y2 <= 1.0))
+
+    def test_rejects_bad_parameters(self):
+        with self.assertRaises(ValueError):
+            OneEuroFilter(min_cutoff=0.0)
 
 
 if __name__ == "__main__":

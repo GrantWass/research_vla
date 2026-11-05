@@ -15,7 +15,9 @@ if np is not None:
     from real_robot.backends import MockBackend
     from real_robot.config import RobotConfig
     from real_robot.piper import PiperLeader
-    from real_robot.teleop import teleop
+    from real_robot.piper import MotorsTooHot
+    from real_robot.recorder import KeyedRecorder
+    from real_robot.teleop import keyed_session, teleop
 
 
 class _NS:
@@ -110,6 +112,116 @@ class TestTeleop(unittest.TestCase):
         s = self.run_teleop(lead, seconds=10)
         self.assertIn("jumped", s["status"])
         self.assertGreater(self.robot.held, 0)
+
+
+class SessionArm(MockBackend if np is not None else object):
+    """MockBackend with the power controls keyed_session uses; logs them."""
+
+    def __init__(self, cfg, name, calls, hot=False):
+        super().__init__(cfg, lag=1.0)
+        self.name, self.calls, self.hot, self.on = name, calls, hot, True
+
+    def motors_on(self):
+        return self.on
+
+    def check_motors(self, log=print):
+        self.calls.append((self.name, "check"))
+        if self.hot:
+            raise MotorsTooHot(f"{self.name} J5 at 67 C")
+
+    def enable(self):
+        self.calls.append((self.name, "enable"))
+        self.on = True
+
+    def home(self, log=print):
+        self.calls.append((self.name, "home"))
+
+    def park(self, log=print):
+        self.calls.append((self.name, "park"))
+        self.on = False
+
+
+class TeachingArm(FakeLeaderArm):
+    def __init__(self, q_deg, calls):
+        super().__init__(q_deg)
+        self.calls = calls
+
+    def MasterSlaveConfig(self, mode, *a):
+        self.calls.append(("leader", hex(mode)))
+
+
+class ScriptedKeys:
+    """get() returns the script in order (None = no key on that poll), then None."""
+
+    def __init__(self, script):
+        self.script = list(script)
+
+    def get(self):
+        return self.script.pop(0) if self.script else None
+
+
+class SessionDataset:
+    def __init__(self):
+        self.buffer, self.episodes = [], []
+
+    def add_frame(self, f):
+        self.buffer.append(f)
+
+    def save_episode(self, parallel_encoding=True):
+        self.episodes.append(self.buffer)
+        self.buffer = []
+
+    def clear_episode_buffer(self):
+        self.buffer = []
+
+    def finalize(self):
+        pass
+
+
+@unittest.skipIf(np is None, "numpy not installed")
+class TestKeyedSession(unittest.TestCase):
+    """make record: arms parked between episodes; Space powers up and records."""
+
+    def setUp(self):
+        self.cfg = RobotConfig(arms={"arm": "x"}, control_hz=50)
+        self.calls = []
+        self.ds = SessionDataset()
+
+    def run_session(self, script, hot=False):
+        robot = SessionArm(self.cfg, "close", self.calls, hot=hot)
+        far = SessionArm(self.cfg, "far", self.calls)
+        leader = PiperLeader("x", sdk_factory=lambda can: TeachingArm([0] * 6, self.calls))
+        keys = ScriptedKeys(script)
+        rec = KeyedRecorder(self.ds, robot, self.cfg, "stack", fps=50, key_source=keys.get,
+                            log=lambda *a: None)
+        keyed_session(robot, far, leader, self.cfg, rec, keys, hz=200.0, log=lambda *a: None)
+        rec.close()
+        return rec
+
+    def test_space_powers_up_records_then_parks(self):
+        rec = self.run_session([" ", None] + [None] * 10 + ["\n", "q"])
+        self.assertEqual(len(self.ds.episodes), 1)
+        self.assertGreater(len(self.ds.episodes[0]), 5)
+        self.assertEqual(rec.saved, 1)
+        c = self.calls
+        self.assertEqual(c[:2], [("close", "park"), ("far", "park")])  # parked at start
+        i_enable, i_teach = c.index(("close", "enable")), c.index(("leader", "0xfa"))
+        self.assertLess(c.index(("close", "check")), i_enable)  # motors checked first
+        self.assertLess(c.index(("far", "home")), i_teach)      # homed before going limp
+        tail = c[c.index(("leader", "0xfc")):]
+        self.assertIn(("close", "park"), tail)  # parked after the episode
+        self.assertIn(("far", "park"), tail)
+
+    def test_hot_motor_refuses_to_start(self):
+        rec = self.run_session([" ", "q"], hot=True)
+        self.assertNotIn(("close", "enable"), self.calls)
+        self.assertNotIn(("leader", "0xfa"), self.calls)
+        self.assertEqual(rec.saved, 0)
+
+    def test_r_discards_and_parks_ready_for_space(self):
+        rec = self.run_session([" ", None] + [None] * 10 + ["r", " ", None] + [None] * 10 + ["\n", "q"])
+        self.assertEqual((rec.saved, rec.discarded), (1, 1))
+        self.assertEqual(self.calls.count(("leader", "0xfa")), 2)
 
 
 if __name__ == "__main__":
