@@ -1,0 +1,5 @@
+{
+  "_note": "piper_1_banana (cube/banana checkpoints) for undertrained checkpoints: jumps over abort_delta are rate-limited (max_step_delta per step) instead of aborting. Tracking-error and limit checks still apply.",
+  "extends": "piper_1_banana.json",
+  "clamp_jumps": true
+}
