@@ -126,12 +126,23 @@ def align(robot, s, args, log=print) -> dict:
     rounds = []
     for r in range(2):
         p = np.asarray(robot.get_end_pose()[:3], float)
-        d = np.mean([model(robot.get_images(), p) for _ in range(3)], axis=0)
+        preds, spreads = [], []
+        for _ in range(3):
+            preds.append(model(robot.get_images(), p))
+            spreads.append(getattr(model, "spread", 0.0))
+        d = np.mean(preds, axis=0)
         dxy = d[:2]
         n = float(np.linalg.norm(dxy))
-        rounds.append({"pred_cm": [round(100 * float(x), 2) for x in d]})
+        spread = float(np.mean(spreads))
+        rounds.append({"pred_cm": [round(100 * float(x), 2) for x in d], "spread_cm": round(100 * spread, 2),
+                       "answer": getattr(model, "answer", None)})
         log(f"[align] round {r}: predicted grasp offset x {100*d[0]:+.1f} y {100*d[1]:+.1f} "
-            f"z {100*d[2]:+.1f} cm")
+            f"z {100*d[2]:+.1f} cm, spread {100*spread:.2f} cm"
+            + (f", buckets {model.answer}" if getattr(model, "answer", None) else ""))
+        if spread > args.align_max_spread:  # the members disagree: unfamiliar view, do not move on it
+            log(f"[align] spread over {100*args.align_max_spread:.1f} cm: not shifting")
+            rounds[-1]["skipped"] = "spread"
+            break
         if n < args.align_deadband:
             break
         if n > args.align_max:
@@ -174,10 +185,12 @@ def add_jev_args(ap) -> None:
     g.add_argument("--judge", choices=["lite", "jev", "both"], default="lite",
                    help="grasp/place judge: JEV-lite (~15 ms, real_robot/jevlite.py), JEV-9B (~170 ms), "
                         "or both (a placement needs both to agree)")
-    g.add_argument("--offset-model", default="outputs/jevlite/offset_dinos_g4",
+    g.add_argument("--offset-model", default="outputs/jevlite/offset_ens5",
                    help="--recover align: grasp-offset regressor (real_robot/jevlite_offset.py)")
     g.add_argument("--align-deadband", type=float, default=0.015, help="m: smaller offsets are left alone")
     g.add_argument("--align-max", type=float, default=0.06, help="m: largest shift per round")
+    g.add_argument("--align-max-spread", type=float, default=0.01,
+                   help="m: ensemble disagreement above this = unfamiliar view, no shift (demos: p90 0.25 cm)")
     g.add_argument("--lite-model", default="outputs/jevlite/model_dinos_g4_aug")
     g.add_argument("--hover-s", type=float, default=3.0,
                    help="open and still this long = hover (pi0.5 lined up, never closed); 0 = off")

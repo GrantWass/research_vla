@@ -127,6 +127,44 @@ check. All moves go through the servo's workspace guard. Fake-arm tests cover th
 oracle case; **not yet run live**. Tangential is the weak axis: demos approach nearly on target sideways,
 so there is little sideways variety to learn from; real hover logs (`judged/` frames) are the fix.
 
+### Ensemble, 3-D buckets, and what the demos cannot teach
+
+- **Ensemble (default `--offset-model outputs/jevlite/offset_ens5`)**: 5 heads, mean taken. Held-out
+  median xy error 0.92 cm; from ≥ 3 cm away the mean step brings the gripper closer every time.
+  Members disagree by ≤ 0.25 cm on 90% of demo frames; `--align-max-spread 0.01` refuses to shift when
+  they disagree by more than 1 cm. That catches noisy frames, not novel scenes: on a frame from the
+  home pose (never trained on) they still agree (0.3 cm), so the 6 cm cap and the workspace guard stay
+  the real limits.
+- **JEV-style categorical answers (`--offset-model outputs/jevlite/offset_buckets`)**: per axis
+  (radial, tangential, height) 7 buckets: far − / medium − / small − / centred / small + / medium + /
+  far +, edges ±1, ±3, ±6 cm. Each bucket moves by its training-median offset; the step is the
+  probability-weighted move, and the answers are logged with their probabilities.
+
+  | axis | bucket acc | within one bucket | right direction when off-centre |
+  |---|---|---|---|
+  | radial | 72% | 98.9% | 98% |
+  | tangential | 76% | 98.2% | 74% |
+  | height | 70% | 99.1% | 100% |
+
+  One step: 5.4 → 1.7 cm (median xy, ≥ 3 cm away), closer in 100%. The regression ensemble is more
+  precise; the buckets are easier to read and audit.
+- **Coverage is the limit, not the model.** Held-out bucket counts: radial never negative (demos never
+  overshoot), tangential almost never beyond ±3 cm, height never "below". Nothing can learn those
+  buckets from these demos. `real_robot/jevlite_collect.py` makes that data on the arm: from a good grasp
+  pose it visits radial/tangential ±8 cm at 3/6/9 cm above (75 poses, labels exact from the end pose,
+  never below the grasp, every move through the workspace guard), then returns. Train with
+  `python -m real_robot.jevlite_offset train ... --collected outputs/jevlite/collect_<stamp>`.
+  Tested on the fake arm only.
+
+### Live frames back into JEV-lite
+
+`real_robot/jevlite_live.py`: `template` lists every live attempt with saved `judged/` frames in a CSV;
+fill in grasped / placed / released (y/n); `build` labels and encodes the frames; `jevlite train --live`
+adds them (oversampled ×5) to the demo set. Tested end to end on synthetic logs.
+
+Judge thresholds re-checked for JEV-lite on held-out frames and kept: holding ≥ 0.35 (TPR 96.4%,
+FPR 0.3%), placed ≥ 0.6 (0% on approach/idle frames, 1.9% on held-over-bowl).
+
 ## Monitor rules (no model needed)
 
 - **Hover**: gripper open and J1–J6 slower than 0.02 rad/s for 3 s (`--hover-s`, 0 = off) ends the
@@ -174,6 +212,6 @@ python -m real_robot.jevlite_compare --dataset demos/cube_grid_all_pi05 --frames
 - `real_robot/runner.py`: `run(observer=, stop_event=)`, `build_parser()`, `make_policy()`.
 - `scripts/serve_jev.sh` (`make jev-server`): JEV-9B FP8 + adapter on the 3090 (~15 GB).
 - `outputs/weak_20261104.sh`: the weak-checkpoint training job.
-- `real_robot/jevlite.py` (encoder, train, `JevLite`, `LiteJudge`), `jevlite_data.py` (phase labels from gripper traces), `jevlite_compare.py` (vs JEV-9B), `jevlite_offset.py` (grasp-offset regressor, `GraspOffset`).
+- `real_robot/jevlite.py` (encoder, train, `JevLite`, `LiteJudge`), `jevlite_data.py` (phase labels from gripper traces), `jevlite_compare.py` (vs JEV-9B), `jevlite_offset.py` (grasp-offset regressor/ensemble/buckets, `GraspOffset`), `jevlite_live.py` (live frames → training), `jevlite_collect.py` (arm data collection for the offset model).
 - Tests: `tests/test_real_robot_jev.py` (monitor phases, runner hooks, servo convergence with an oracle judge).
 

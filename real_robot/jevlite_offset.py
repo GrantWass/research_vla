@@ -27,6 +27,36 @@ import numpy as np
 from .jevlite import build_head, inputs, test_episode
 
 MAX_DIST = 0.15  # m: only frames this close to the grasp (the hover regime)
+# Categorical mode (JEV-style answers, per axis): bucket edges in m, symmetric.
+EDGES = np.array([-0.06, -0.03, -0.01, 0.01, 0.03, 0.06])
+BUCKETS = ["far -", "medium -", "small -", "centred", "small +", "medium +", "far +"]
+AXES = ("radial", "tangential", "dz")
+
+
+def load_collected(dirs, grid: int = 4, backbone: str = "dinos", repeat: int = 3):
+    """Arm-collected frames (real_robot/jevlite_collect.py) -> (X, Y): all for training."""
+    if not dirs:
+        return None
+    from PIL import Image
+
+    from .jevlite import Encoder
+
+    enc = Encoder(backbone, grid=grid)
+    X, Y = [], []
+    for d in dirs:
+        for r in (json.loads(l) for l in open(os.path.join(d, "labels.jsonl"))):
+            w = enc([np.asarray(Image.open(r["cam_wrist"]).convert("RGB"))])[0]
+            b = enc([np.asarray(Image.open(r["cam_high"]).convert("RGB"))])[0]
+            X.append(np.concatenate([w, b]))
+            Y.append(r["offset_rtz"])
+    X, Y = np.array(X, np.float32), np.array(Y, np.float32)
+    print(f"collected: {len(X)} frames from {len(dirs)} sessions (x{repeat})")
+    return np.concatenate([X] * repeat), np.concatenate([Y] * repeat)
+
+
+def bucketize(y: np.ndarray) -> np.ndarray:
+    """(n, 3) offsets in m -> (n, 3) bucket indices 0..6."""
+    return np.searchsorted(EDGES, y, side="right")
 
 
 def to_arm_frame(p: np.ndarray, delta: np.ndarray) -> np.ndarray:
@@ -76,7 +106,12 @@ def labels(rows: list[dict], gp: dict[int, np.ndarray]) -> tuple[np.ndarray, np.
     return m, y
 
 
-def train(dataset, frames, feats, out, extra=(), epochs=150, seed=0) -> dict:
+def train(dataset, frames, feats, out, extra=(), epochs=150, seed=0, members: int = 1,
+          collected=()) -> dict:
+    """members > 1: an ensemble (seeds seed..seed+members-1, head_<k>.pt); its spread
+    gates --recover align (act only when the members agree)."""
+    if members > 1:
+        return train_ensemble(dataset, frames, feats, out, extra, epochs, seed, members, collected)
     import torch
 
     torch.manual_seed(seed)
@@ -90,6 +125,10 @@ def train(dataset, frames, feats, out, extra=(), epochs=150, seed=0) -> dict:
     for f in extra:
         xs.append(inputs(dict(np.load(f)))[tr])
         ys.append(Y[tr])
+    c = load_collected(collected)
+    if c is not None:
+        xs.append(c[0])
+        ys.append(c[1])
     Xtr, Ytr = torch.tensor(np.concatenate(xs)), torch.tensor(np.concatenate(ys) * 100.0)  # cm
     dev = "cuda" if torch.cuda.is_available() else "cpu"
     head = build_head(X.shape[1], n_out=3).to(dev)
@@ -128,8 +167,121 @@ def train(dataset, frames, feats, out, extra=(), epochs=150, seed=0) -> dict:
                                             < np.linalg.norm(T[k, :2], axis=1)).mean()), 3)}
     os.makedirs(out, exist_ok=True)
     torch.save(head.state_dict(), os.path.join(out, "head.pt"))
+    np.save(os.path.join(out, "test_pred.npy"), P)
+    np.save(os.path.join(out, "test_true.npy"), T)
     json.dump({"in_dim": int(X.shape[1]), "units": "cm", "backbone": "dinos", "grid": 4,
                "cams": ["wrist", "base"], "metrics": res}, open(os.path.join(out, "config.json"), "w"), indent=1)
+    return res
+
+
+def train_buckets(dataset, frames, feats, out, extra=(), epochs=150, seed=0, collected=()) -> dict:
+    """Per-axis 7-way classifier (BUCKETS). Each bucket moves by its training median
+    offset; the step is the probability-weighted move, so a confident "far" means a
+    big step and an unsure answer a small one."""
+    import torch
+
+    torch.manual_seed(seed)
+    rows = [json.loads(l) for l in open(os.path.join(frames, "labels.jsonl"))]
+    m, Y = labels(rows, grasp_poses(dataset))
+    B = bucketize(Y)
+    d = dict(np.load(feats))
+    X = inputs(d)
+    te = np.array([test_episode(int(e)) for e in d["episode"]])
+    tr = m & ~te
+    nb = len(BUCKETS)
+    centres = np.zeros((3, nb))
+    for a in range(3):
+        for b in range(nb):
+            v = Y[tr & (B[:, a] == b), a]
+            lo = EDGES[b - 1] if b > 0 else EDGES[0] - 0.03
+            hi = EDGES[b] if b < nb - 1 else EDGES[-1] + 0.03
+            centres[a, b] = float(np.median(v)) if len(v) >= 5 else (lo + hi) / 2
+    xs, bs = [X[tr]], [B[tr]]
+    for f in extra:
+        xs.append(inputs(dict(np.load(f)))[tr])
+        bs.append(B[tr])
+    c = load_collected(collected)
+    if c is not None:
+        xs.append(c[0])
+        bs.append(bucketize(c[1]))
+    Xtr, Btr = torch.tensor(np.concatenate(xs)), torch.tensor(np.concatenate(bs), dtype=torch.long)
+    dev = "cuda" if torch.cuda.is_available() else "cpu"
+    head = build_head(X.shape[1], n_out=3 * nb).to(dev)
+    opt = torch.optim.AdamW(head.parameters(), lr=1e-3, weight_decay=0.05)
+    sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, epochs)
+    for _ in range(epochs):
+        head.train()
+        perm = torch.randperm(len(Xtr))
+        for s0 in range(0, len(perm), 128):
+            b = perm[s0:s0 + 128]
+            xb = Xtr[b].to(dev)
+            logits = head(xb + 0.05 * torch.randn_like(xb)).view(-1, 3, nb)
+            loss = torch.nn.functional.cross_entropy(logits.reshape(-1, nb), Btr[b].to(dev).reshape(-1),
+                                                     label_smoothing=0.05)
+            opt.zero_grad()
+            loss.backward()
+            opt.step()
+        sched.step()
+    head.eval()
+    tm = m & te
+    with torch.no_grad():
+        Pb = torch.softmax(head(torch.tensor(X[tm], device=dev)).view(-1, 3, nb), -1).cpu().numpy()
+    T, Bt = Y[tm], B[tm]
+    step = (Pb * centres[None]).sum(-1)  # expected move per axis, m
+    pred = Pb.argmax(-1)
+    res = {"n_train": int(tr.sum()), "n_test": int(tm.sum()), "buckets": BUCKETS,
+           "edges_cm": (100 * EDGES).tolist(),
+           "bucket_centres_cm": {ax: (100 * centres[a]).round(2).tolist() for a, ax in enumerate(AXES)},
+           "test_bucket_counts": {ax: np.bincount(Bt[:, a], minlength=nb).tolist() for a, ax in enumerate(AXES)}}
+    for a, ax in enumerate(AXES):
+        res[ax] = {"bucket_acc": round(float((pred[:, a] == Bt[:, a]).mean()), 3),
+                   "within_one": round(float((np.abs(pred[:, a] - Bt[:, a]) <= 1).mean()), 3),
+                   "sign_acc_when_off": round(float((np.sign(step[Bt[:, a] != 3, a]) ==
+                                                     np.sign(T[Bt[:, a] != 3, a])).mean()), 3),
+                   "step_mae_cm": round(100 * float(np.abs(step[:, a] - T[:, a]).mean()), 2)}
+    dist = np.linalg.norm(T[:, :2], axis=1)
+    after = np.linalg.norm(T[:, :2] - step[:, :2], axis=1)
+    far = dist >= 0.03
+    res["xy_after_one_step_cm_median"] = round(100 * float(np.median(after[far])), 2)
+    res["xy_before_cm_median"] = round(100 * float(np.median(dist[far])), 2)
+    res["closer_frac"] = round(float((after[far] < dist[far]).mean()), 3)
+    os.makedirs(out, exist_ok=True)
+    torch.save(head.state_dict(), os.path.join(out, "head.pt"))
+    json.dump({"in_dim": int(X.shape[1]), "units": "buckets", "backbone": "dinos", "grid": 4,
+               "cams": ["wrist", "base"], "centres_m": centres.tolist(), "metrics": res},
+              open(os.path.join(out, "config.json"), "w"), indent=1)
+    return res
+
+
+def train_ensemble(dataset, frames, feats, out, extra, epochs, seed, members, collected=()) -> dict:
+    import shutil
+
+    preds = []
+    for k in range(members):
+        sub = os.path.join(out, f"m{k}")
+        train(dataset, frames, feats, sub, extra, epochs, seed + k, collected=collected)
+        preds.append(np.load(os.path.join(sub, "test_pred.npy")))
+        os.makedirs(out, exist_ok=True)
+        shutil.copy(os.path.join(sub, "head.pt"), os.path.join(out, f"head_{k}.pt"))
+    T = np.load(os.path.join(out, "m0", "test_true.npy"))
+    P = np.stack(preds)  # (members, n, 3)
+    mean, spread = P.mean(0), np.linalg.norm(P[:, :, :2].std(0), axis=1)
+    dist = np.linalg.norm(T[:, :2], axis=1)
+    after = np.linalg.norm(T[:, :2] - mean[:, :2], axis=1)
+    res = {"members": members, "n_test": int(len(T)),
+           "xy_err_cm_median": round(100 * float(np.median(after)), 2),
+           "spread_err_corr": round(float(np.corrcoef(spread, after)[0, 1]), 3)}
+    far = dist >= 0.03
+    for q in (50, 75, 90, 100):
+        thr = float(np.percentile(spread[far], q)) if q < 100 else np.inf
+        act = far & (spread <= thr)
+        res[f"gate_p{q}"] = {"spread_thr_cm": None if q == 100 else round(100 * thr, 2),
+                             "acted_frac": round(float(act.sum() / far.sum()), 3),
+                             "closer_frac_when_acted": round(float((after[act] < dist[act]).mean()), 3),
+                             "worse_by_1cm_frac": round(float((after[act] > dist[act] + 0.01).mean()), 3)}
+    cfg = json.load(open(os.path.join(out, "m0", "config.json")))
+    cfg.update(members=members, metrics=res)
+    json.dump(cfg, open(os.path.join(out, "config.json"), "w"), indent=1)
     return res
 
 
@@ -143,17 +295,35 @@ class GraspOffset:
 
         self.cfg = json.load(open(os.path.join(model_dir, "config.json")))
         self.enc = encoder or Encoder(self.cfg["backbone"], grid=self.cfg["grid"])
-        self.head = build_head(self.cfg["in_dim"], n_out=3)
-        self.head.load_state_dict(torch.load(os.path.join(model_dir, "head.pt"), map_location="cpu"))
-        self.head.eval().to(self.enc.device)
+        self.buckets = self.cfg.get("units") == "buckets"
+        self.centres = np.asarray(self.cfg["centres_m"]) if self.buckets else None
+        self.answer: dict | None = None  # bucket answers at the last call (bucket models)
+        n = int(self.cfg.get("members", 1))
+        names = [f"head_{k}.pt" for k in range(n)] if n > 1 else ["head.pt"]
+        self.heads = []
+        for name in names:
+            h = build_head(self.cfg["in_dim"], n_out=3 * len(BUCKETS) if self.buckets else 3)
+            h.load_state_dict(torch.load(os.path.join(model_dir, name), map_location="cpu"))
+            self.heads.append(h.eval().to(self.enc.device))
         self.torch = torch
+        self.spread = 0.0  # m: xy disagreement between members at the last call
 
     def rtz(self, images: dict) -> np.ndarray:
         key = {"wrist": "cam_wrist", "base": "cam_high"}
         f = self.enc([images[key[c]] for c in self.cfg["cams"]]).reshape(1, -1)
+        x = self.torch.tensor(f, device=self.enc.device)
         with self.torch.no_grad():
-            y = self.head(self.torch.tensor(f, device=self.enc.device)).float().cpu().numpy()[0]
-        return y / 100.0
+            outs = [h(x).float().cpu().numpy()[0] for h in self.heads]
+        if self.buckets:
+            P = np.exp(outs[0].reshape(3, -1))
+            P /= P.sum(1, keepdims=True)
+            self.answer = {ax: {"bucket": BUCKETS[int(P[a].argmax())], "p": round(float(P[a].max()), 3)}
+                           for a, ax in enumerate(AXES)}
+            self.spread = 0.0
+            return (P * self.centres).sum(1)
+        ys = np.stack(outs) / 100.0
+        self.spread = float(np.linalg.norm(ys[:, :2].std(0))) if len(ys) > 1 else 0.0
+        return ys.mean(0)
 
     def __call__(self, images: dict, p_xyz: np.ndarray) -> np.ndarray:
         return from_arm_frame(np.asarray(p_xyz, float), self.rtz(images))
@@ -170,8 +340,17 @@ def main(argv=None) -> int:
     t.add_argument("--extra", default="")
     t.add_argument("--out", required=True)
     t.add_argument("--seed", type=int, default=0)
+    t.add_argument("--members", type=int, default=1)
+    t.add_argument("--buckets", action="store_true", help="per-axis 7-bucket classifier instead of regression")
+    t.add_argument("--collected", default="", help="comma-separated jevlite_collect output dirs")
     a = ap.parse_args(argv)
-    res = train(a.dataset, a.frames, a.feats, a.out, tuple(x for x in a.extra.split(",") if x), seed=a.seed)
+    if a.buckets:
+        print(json.dumps(train_buckets(a.dataset, a.frames, a.feats, a.out,
+                                       tuple(x for x in a.extra.split(",") if x), seed=a.seed,
+                                       collected=tuple(x for x in a.collected.split(",") if x)), indent=1))
+        return 0
+    res = train(a.dataset, a.frames, a.feats, a.out, tuple(x for x in a.extra.split(",") if x), seed=a.seed,
+                members=a.members, collected=tuple(x for x in a.collected.split(",") if x))
     print(json.dumps(res, indent=1))
     return 0
 

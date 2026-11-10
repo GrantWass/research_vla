@@ -133,7 +133,8 @@ def inputs(d, cams=CAMS, gripper: bool = False) -> np.ndarray:
 
 
 def train(feats: str, out: str, cams=CAMS, gripper: bool = False, epochs: int = 60,
-          seed: int = 0, extra: tuple[str, ...] = ()) -> dict:
+          seed: int = 0, extra: tuple[str, ...] = (), live: tuple[str, ...] = (),
+          live_repeat: int = 5) -> dict:
     import torch
 
     torch.manual_seed(seed)
@@ -150,6 +151,10 @@ def train(feats: str, out: str, cams=CAMS, gripper: bool = False, epochs: int = 
         da = dict(np.load(f))
         xs.append(inputs(da, cams, gripper)[~te])
         ys.append(da["phase"][~te])
+    for f in live:  # live-run frames (real_robot/jevlite_live.py): all training, oversampled
+        dl = dict(np.load(f))
+        xs += [inputs(dl, cams, gripper)] * live_repeat
+        ys += [dl["phase"]] * live_repeat
     Xtr, ytr = torch.tensor(np.concatenate(xs)), torch.tensor(np.concatenate(ys))  # CPU; batches go to dev
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, epochs)
     for epoch in range(epochs):
@@ -275,12 +280,14 @@ def main(argv=None) -> int:
     t.add_argument("--grid", type=int, default=0, help="must match the features")
     t.add_argument("--extra", default="", help="comma-separated augmented feature files")
     t.add_argument("--seed", type=int, default=0)
+    t.add_argument("--live", default="", help="comma-separated live-frame features (jevlite_live build)")
     a = ap.parse_args(argv)
     if a.cmd == "features":
         extract(a.frames, a.out, a.backbone, grid=a.grid, aug_seed=a.aug_seed)
     else:
         m = train(a.feats, a.out, tuple(a.cams.split(",")), a.gripper, seed=a.seed,
-                  extra=tuple(x for x in a.extra.split(",") if x))
+                  extra=tuple(x for x in a.extra.split(",") if x),
+                  live=tuple(x for x in a.live.split(",") if x))
         cfgp = os.path.join(a.out, "config.json")
         c = json.load(open(cfgp))
         c["backbone"], c["grid"] = a.backbone, a.grid

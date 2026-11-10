@@ -301,11 +301,69 @@ def _align():
         def __call__(self, images, p): return goal - np.asarray(p)
 
     G._OFFSET["oracle"] = Oracle()
-    args = types.SimpleNamespace(offset_model="oracle", align_deadband=0.015, align_max=0.06, grasp_z=0.151)
+    args = types.SimpleNamespace(offset_model="oracle", align_deadband=0.015, align_max=0.06, grasp_z=0.151,
+                                 align_max_spread=0.01)
     out = G.align(arm, s, args, log=lambda *a: None)
     p = arm.get_end_pose()[:3]
     assert np.linalg.norm(p[:2] - goal[:2]) < 0.006, (p, goal)
     assert abs(out["grasp_z"] - float(np.clip(goal[2], 0.141, 0.181))) < 0.003
+
+
+def test_align_does_not_move_when_ensemble_disagrees():
+    _no_sleep(_align_spread)
+
+
+def _align_spread():
+    import types
+
+    import real_robot.jev_guard as G
+
+    arm = _ArmXYZ()
+    s = _servo(arm)
+    s.guard_from_here(0.10)
+    p0 = arm.get_end_pose()[:3]
+
+    class Unsure:
+        spread = 0.03
+
+        def __call__(self, images, p): return np.array([0.0, 0.05, -0.02])
+
+    G._OFFSET["unsure"] = Unsure()
+    args = types.SimpleNamespace(offset_model="unsure", align_deadband=0.015, align_max=0.06, grasp_z=0.151,
+                                 align_max_spread=0.01)
+    out = G.align(arm, s, args, log=lambda *a: None)
+    assert out["rounds"][0].get("skipped") == "spread"
+    assert np.linalg.norm(arm.get_end_pose()[:2] - p0[:2]) < 0.002
+
+
+def test_collect_grid_labels_and_return():
+    import importlib.util
+
+    if importlib.util.find_spec("PIL") is None:
+        return  # robot venv: no Pillow (collection runs in the lerobot venv)
+    _no_sleep(_collect)
+
+
+def _collect():
+    import json, os, tempfile
+
+    from real_robot.jevlite_collect import collect, grid
+
+    arm = _ArmXYZ()
+    s = _servo(arm)
+    s.hz = 500.0
+    q0 = arm.get_joint_state()
+    grasp = arm.get_end_pose()[:3]
+    d = tempfile.mkdtemp()
+    pts = grid(0.04, 0.04, (0.03,))
+    n = collect(arm, s.cfg, s, d, pts, settle_s=0.0, log=lambda *a: None)
+    assert n == len(pts) == 9
+    recs = [json.loads(l) for l in open(os.path.join(d, "labels.jsonl"))]
+    for r, off in zip(recs, pts):
+        # label = offset FROM here TO the grasp = minus the commanded offset
+        assert np.allclose(r["offset_rtz"], -off, atol=0.006), (r["offset_rtz"], off)
+        assert r["pose"][2] >= grasp[2] - 0.001
+    assert np.allclose(arm.get_joint_state()[:6], q0[:6], atol=1e-3)  # back where it started
 
 
 class TestJev(unittest.TestCase):
