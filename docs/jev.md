@@ -165,6 +165,32 @@ adds them (oversampled ×5) to the demo set. Tested end to end on synthetic logs
 Judge thresholds re-checked for JEV-lite on held-out frames and kept: holding ≥ 0.35 (TPR 96.4%,
 FPR 0.3%), placed ≥ 0.6 (0% on approach/idle frames, 1.9% on held-over-bowl).
 
+### Does JEV-lite transfer? (2026-11-10)
+
+- **Other objects: cannot be measured with the data on disk.** `general_v1` / `general_v1_eval` /
+  `cube_target_v1` list many objects, but every non-cube recording is a 20-frame stub (none ≥ 200
+  frames); their full-length episodes are the cube demos repeated under other instructions (each
+  recording appears ~4× with paraphrased or decoy object names). An early "91% on new objects" result
+  was cube-on-cube and is withdrawn. `jevlite.test_mask` now holds out every copy of a recording
+  together (signature: first state, last frame, frame count), since plain episode indices leaked
+  15 held-out cube demos into training through `general_v1`'s copies.
+- **Another session of the same task: yes, with its data.** `rubiks_bowl_v5` (October, a different
+  wrist-camera mount: the view points elsewhere entirely) is the one real shift. Cube-only JEV-lite:
+  70% phase accuracy, placed recall 51% on its held-out episodes. Trained on both sessions
+  (`outputs/jevlite/model_2sess_g4`): 87% and 90%, with cube unchanged (91%). A side-camera-only head
+  is worse on both (60%), so both cameras stay.
+- Takeaway: JEV-lite is rig- and task-specific; budget ~50 demos per new rig/session, or live frames
+  through `jevlite_live`.
+
+### JEV-9B on the 3-D bucket questions (`real_robot/jev_lora_3d.py`)
+
+Same frames, labels and held-out episodes as the offset model, both cameras, the 7 buckets per axis as
+JEV choice questions, continuing the direction adapter (QLoRA, served unchanged by vLLM). Zero-shot on
+held-out: bucket accuracy radial 28% / tangential 61% (mostly "centred") / height 22%; right direction
+when off-centre 73% / 68% / 35%. Fine-tune (9,186 questions, ~5.5 h on the 3090) running; results in
+`outputs/jev_lora_3d/train_report.json` (checkpoints every 3,000 steps). JEV-lite's bucket head for
+comparison: 72% / 76% / 70%, direction 98% / 74% / 100%.
+
 ## Monitor rules (no model needed)
 
 - **Hover**: gripper open and J1–J6 slower than 0.02 rad/s for 3 s (`--hover-s`, 0 = off) ends the
@@ -212,6 +238,6 @@ python -m real_robot.jevlite_compare --dataset demos/cube_grid_all_pi05 --frames
 - `real_robot/runner.py`: `run(observer=, stop_event=)`, `build_parser()`, `make_policy()`.
 - `scripts/serve_jev.sh` (`make jev-server`): JEV-9B FP8 + adapter on the 3090 (~15 GB).
 - `outputs/weak_20261104.sh`: the weak-checkpoint training job.
-- `real_robot/jevlite.py` (encoder, train, `JevLite`, `LiteJudge`), `jevlite_data.py` (phase labels from gripper traces), `jevlite_compare.py` (vs JEV-9B), `jevlite_offset.py` (grasp-offset regressor/ensemble/buckets, `GraspOffset`), `jevlite_live.py` (live frames → training), `jevlite_collect.py` (arm data collection for the offset model).
+- `real_robot/jevlite.py` (encoder, train, `JevLite`, `LiteJudge`), `jevlite_data.py` (phase labels from gripper traces), `jevlite_compare.py` (vs JEV-9B), `jevlite_offset.py` (grasp-offset regressor/ensemble/buckets, `GraspOffset`), `jevlite_live.py` (live frames → training), `jevlite_collect.py` (arm data collection for the offset model), `jev_lora_3d.py` (JEV-9B 3-D bucket fine-tune).
 - Tests: `tests/test_real_robot_jev.py` (monitor phases, runner hooks, servo convergence with an oracle judge).
 

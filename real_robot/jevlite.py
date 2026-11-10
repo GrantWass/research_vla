@@ -33,6 +33,32 @@ def test_episode(e: int) -> bool:
     return e % 5 == 0  # held-out episodes: 0, 5, 10, ...
 
 
+def episode_signatures(d: dict) -> dict[int, tuple]:
+    """Episode -> (first sampled state, last sampled frame, frames kept): the same
+    recording under another index gets the same signature. The start state alone
+    is not enough (every episode starts from the same home pose)."""
+    ep, fr, st = d["episode"], d["frame"], d["state"]
+    out: dict[int, tuple] = {}
+    for e in np.unique(ep):
+        k = np.flatnonzero(ep == e)
+        i = k[np.argmin(fr[k])]
+        out[int(e)] = (tuple(np.round(st[i], 4).tolist()), int(fr[k].max()), int(len(k)))
+    return out
+
+
+def test_mask(d: dict) -> np.ndarray:
+    """Held-out frames. Datasets can hold copies of the same episode under several
+    indices (general_v1 has each cube_grid demo 4 times), so episodes are grouped by
+    their first recorded state and a whole group is held out when its lowest index is."""
+    ep = d["episode"]
+    first = episode_signatures(d)
+    groups: dict[tuple, list[int]] = {}
+    for e, sig in first.items():
+        groups.setdefault(sig, []).append(e)
+    held = {e for g in groups.values() if test_episode(min(g)) for e in g}
+    return np.array([int(e) in held for e in ep])
+
+
 class Encoder:
     """Frozen backbone: image (H, W, 3) uint8 -> [CLS, mean patch] feature."""
 
@@ -140,7 +166,7 @@ def train(feats: str, out: str, cams=CAMS, gripper: bool = False, epochs: int = 
     torch.manual_seed(seed)
     d = dict(np.load(feats))
     X, y, ep = inputs(d, cams, gripper), d["phase"], d["episode"]
-    te = np.array([test_episode(int(e)) for e in ep])
+    te = test_mask(d)
     dev = "cuda" if torch.cuda.is_available() else "cpu"
     head = build_head(X.shape[1]).to(dev)
     opt = torch.optim.AdamW(head.parameters(), lr=1e-3, weight_decay=0.05)
@@ -204,6 +230,23 @@ def metrics(P: np.ndarray, y: np.ndarray, late: np.ndarray) -> dict:
     m["confusion"] = [[int(((y == a) & (pred == b)).sum()) for b in range(len(PHASES))]
                       for a in range(len(PHASES))]
     return m
+
+
+def evaluate(model_dir: str, feats: str, all_test: bool = True) -> dict:
+    """Score a trained head on another dataset's features (every frame is a test frame)."""
+    import torch
+
+    cfg = json.load(open(os.path.join(model_dir, "config.json")))
+    d = dict(np.load(feats))
+    X = inputs(d, tuple(cfg["cams"]), cfg["gripper"])
+    head = build_head(cfg["in_dim"])
+    head.load_state_dict(torch.load(os.path.join(model_dir, "head.pt"), map_location="cpu"))
+    head.eval()
+    keep = np.ones(len(X), bool) if all_test else test_mask(d)
+    with torch.no_grad():
+        P = np.concatenate([torch.softmax(head(torch.tensor(X[keep][s:s + 2048])), 1).numpy()
+                            for s in range(0, int(keep.sum()), 2048)])
+    return metrics(P, d["phase"][keep], d["late"][keep])
 
 
 class JevLite:
@@ -281,7 +324,17 @@ def main(argv=None) -> int:
     t.add_argument("--extra", default="", help="comma-separated augmented feature files")
     t.add_argument("--seed", type=int, default=0)
     t.add_argument("--live", default="", help="comma-separated live-frame features (jevlite_live build)")
+    e = sub.add_parser("eval", help="score a trained model on another dataset's features")
+    e.add_argument("--model", required=True)
+    e.add_argument("--feats", required=True)
+    e.add_argument("--held-out-only", action="store_true")
     a = ap.parse_args(argv)
+    if a.cmd == "eval":
+        m = evaluate(a.model, a.feats, all_test=not a.held_out_only)
+        print(json.dumps({k: v for k, v in m.items() if k != "confusion"}))
+        for row in m["confusion"]:
+            print("  ", row)
+        return 0
     if a.cmd == "features":
         extract(a.frames, a.out, a.backbone, grid=a.grid, aug_seed=a.aug_seed)
     else:
