@@ -62,32 +62,83 @@ Try `weak .../001210/pretrained_model_merged` first: J1 error is twice the 20/20
 should give missed grasps, exactly what the servo is for. If it still succeeds a lot, use `000800`;
 `000400` is about as good as holding still.
 
-## Tomorrow: live runbook
+## Live, 2026-11-05: what happened
 
-0. CAN up, arm homed, scene set. The pi0.5 server left running since 2026-11-03 serves the 20/20
-   model. Stop it (`make policy-server-stop`) and start one on the weak checkpoint:
-   ```bash
-   make policy-server CKPT_HF=outputs/cube_grid_rel_lora32_weak_20261104-2139/checkpoints/001210/pretrained_model_merged
-   ```
-1. JEV, second terminal (~3 min to load; ready when `curl localhost:8000/v1/decide/info` answers):
-   ```bash
-   ADAPTER=$PWD/outputs/jev_lora_dir/adapter_vllm make jev-server
-   ```
-2. **Dry first (5 trials).** JEV judges and logs but never stops or retries. Compare each verdict
-   with what you saw:
-   ```bash
-   make jev-live CKPT_HF=<same ckpt> INSTR="pick up the Rubik's cube and put it in the bowl" CONFIG=<your piper config> STEPS=1500 SPEED=1 JEV_FLAGS=--jev-dry
-   ```
-3. **A/B, 10 trials each, same cube/bowl positions:**
-   - baseline: `make jev-live ... JEV=off`
-   - verifier + retry: `make jev-live ... JEV_FLAGS="--recover home"`
-   - verifier + JEV servo: `make jev-live ... JEV_FLAGS="--recover servo"` (hand on the e-stop the
-     first time: it jogs J2/J3/J5 by 2° to measure the Jacobian, then steps J1 by ≤4° at a time)
-4. Each run writes `real_robot_logs/<stamp>-jev_*/jev_report.json`: every JEV question, P(yes),
-   latency, servo trace. Note the real outcome per trial in `real_robot_logs/jev_trials.csv`.
+- Cube checkpoints need `CONFIG=real_robot/configs/piper_1_banana.json` (30 Hz, gripper 0..1). With
+  `piper_1.json` they look at the ceiling; preflight now refuses that pairing.
+- `weak/001210` is about as good as holding still: useless live. `2ep/004033` lines up over the cube and
+  then **hovers without closing**. That is the failure to fix, not missed grasps. It also asks for
+  >0.5 rad wrist jumps; `real_robot/configs/piper_1_clamp.json` rate-limits them instead of aborting.
+- The JEV-9B direction servo failed live: left/right never converged (bucket stuck at +0.62 while J1
+  moved), and the up/down search drove the arm into the table, the controller faulted and the arm
+  dropped. Servo moves are now bounded (z floor `--grasp-z - --z-margin`, J1 ±20°, reach ±8 cm) and
+  stop on teach mode or motors off.
+- `--recover descend` (straight down to `--grasp-z` in closed loop on the measured end pose, close,
+  lift, check) grasped on its first live try; pi0.5 then carried the cube over the bowl.
+- JEV-9B then scored the cube **held over the bowl, never released** as placed (P 0.82).
 
-Knobs: `--grasp-thr 0.35`, `--place-thr 0.6`, `--attempts 3`, `--servo-lift 0.04`, `--grasp-z 0.151`
-(servo-grasp descend height, median of the demos), `--empty-check`.
+## JEV-lite (2026-11-10): a 25M-parameter judge that runs every step
+
+`real_robot/jevlite.py`. Frozen DINOv2-small encodes the wrist and base frames (CLS, mean patch, and a
+4×4 grid of patch features so position survives), and a small MLP predicts the task phase:
+idle / approach / grasp / holding / release / placed. Labels come free from the demos' gripper traces
+(`real_robot/jevlite_data.py`, 92 of 100 episodes, 20,386 frame pairs); the last third of every
+carry is labelled "holding", never "placed". Trained with two augmented copies (colour jitter, crop,
+shift); held out by episode (every 5th).
+
+Same held-out frames, full resolution (`real_robot/jevlite_compare.py`, 60 frames per case):
+
+| | JEV-lite | JEV-9B (direction LoRA) |
+|---|---|---|
+| held over the bowl, said "placed" | **0 / 60** | 35 / 60 |
+| placed: AUROC / acc@0.5 | **0.991 / 98.3%** | 0.959 / 81.7% |
+| holding: AUROC / acc@0.5 | **0.993 / 96.7%** | 0.854 / 74.6% |
+| latency | **26 ms** for both questions (15 ms on GPU-resident frames) | 168 ms per question |
+
+Over all held-out frames: phase accuracy 91%, holding AUROC 0.995. Placed recall is 93–95% 1–4 s after
+release (when the place check asks) and drops only once the arm is back home. Augmentation keeps
+clean accuracy and adds ~2 points under simulated lighting/framing drift. On 74 first frames from
+real live runs (never seen): 67 idle, plus 2 correct "holding" (the attempt started with the cube in
+the gripper); the misses are frames with the cube at the image edge.
+
+Caveat: JEV-lite knows this rig and this task only; JEV-9B is general. Use `--judge both` to require
+both to agree before calling a placement.
+
+## Monitor rules (no model needed)
+
+- **Hover**: gripper open and J1–J6 slower than 0.02 rad/s for 3 s (`--hover-s`, 0 = off) ends the
+  attempt with verdict `hover`, which triggers `--recover`. Demos never stay open-and-still longer than
+  0.93 s; replaying all 24 live runs from 2026-11-05 flags all 7 hovers at 21–26 s (they used to run
+  to the 40–100 s step limit) and none of the 12 runs that closed.
+- **Never released** at the end of the step budget is `not_released`, never `success`, whatever a
+  model says. Never closed is `hover`/`timeout`.
+- Every judgement saves its frames to `<log>/attemptN/judged/` with question, P and gripper phase:
+  the next training set (real failures).
+
+## Live runbook
+
+1. Servers: `make policy-server CKPT_HF=outputs/cube_grid_rel_lora32_2ep_20261031-1538/checkpoints/004033/pretrained_model_merged`;
+   JEV-9B only for `--judge jev|both` or the direction servo: `ADAPTER=$PWD/outputs/jev_lora_dir/adapter_vllm make jev-server`.
+2. Home the arm before every trial (`python -m real_robot.arm home --arms 1`).
+3. A/B, 10 trials each, same cube/bowl positions:
+   ```bash
+   make jev-live CKPT_HF=<ckpt> CONFIG=real_robot/configs/piper_1_clamp.json INSTR="pick up the Rubik's cube and put it in the bowl" STEPS=1200 SPEED=1 JEV=off
+   make jev-live CKPT_HF=<ckpt> CONFIG=real_robot/configs/piper_1_clamp.json INSTR="pick up the Rubik's cube and put it in the bowl" STEPS=1200 SPEED=1 ATTEMPTS=2 JEV_FLAGS="--recover descend"
+   ```
+   (`--judge lite` is the default; add `--judge both` to cross-check with JEV-9B.)
+
+Knobs: `--grasp-thr 0.35`, `--place-thr 0.6`, `--hover-s 3`, `--grasp-z 0.151` (median grasp height of
+the demos), `--z-margin 0.015`, `--servo-lift 0.04`, `--lite-model outputs/jevlite/model_dinos_g4_aug`.
+
+Rebuild JEV-lite:
+```bash
+python -m real_robot.jevlite_data --dataset demos/cube_grid_all_pi05 --out outputs/jevlite/frames
+python -m real_robot.jevlite features --frames outputs/jevlite/frames --out outputs/jevlite/feats_dinos_g4.npz --grid 4
+for s in 1 2; do python -m real_robot.jevlite features --frames outputs/jevlite/frames --out outputs/jevlite/feats_dinos_g4_aug$s.npz --grid 4 --aug-seed $s; done
+python -m real_robot.jevlite train --feats outputs/jevlite/feats_dinos_g4.npz --out outputs/jevlite/model_dinos_g4_aug --grid 4 --extra outputs/jevlite/feats_dinos_g4_aug1.npz,outputs/jevlite/feats_dinos_g4_aug2.npz
+python -m real_robot.jevlite_compare --dataset demos/cube_grid_all_pi05 --frames outputs/jevlite/frames --lite outputs/jevlite/model_dinos_g4_aug --out outputs/jevlite/compare.json
+```
+(lerobot venv; ~6 min for frames, ~1.5 min per feature pass, seconds to train.)
 
 ## Files
 
@@ -98,5 +149,6 @@ Knobs: `--grasp-thr 0.35`, `--place-thr 0.6`, `--attempts 3`, `--servo-lift 0.04
 - `real_robot/runner.py`: `run(observer=, stop_event=)`, `build_parser()`, `make_policy()`.
 - `scripts/serve_jev.sh` (`make jev-server`): JEV-9B FP8 + adapter on the 3090 (~15 GB).
 - `outputs/weak_20261104.sh`: the weak-checkpoint training job.
+- `real_robot/jevlite.py` (encoder, train, `JevLite`, `LiteJudge`), `jevlite_data.py` (phase labels from gripper traces), `jevlite_compare.py` (vs JEV-9B).
 - Tests: `tests/test_real_robot_jev.py` (monitor phases, runner hooks, servo convergence with an oracle judge).
 

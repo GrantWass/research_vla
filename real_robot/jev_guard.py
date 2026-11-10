@@ -53,7 +53,7 @@ def gripper_open(cfg) -> float:
     return float(rng[1]) if rng else GRIPPER_OPEN_M
 
 
-def servo_recover(robot, cfg, client, args, log=print) -> dict:
+def servo_recover(robot, cfg, client, args, log=print, judge=None) -> dict:
     """After a missed grasp or a hover: open, then
     --recover servo        JEV centres the gripper over the object, pi0.5 takes over
     --recover servo-grasp  JEV centres, then descend to --grasp-z, close, check
@@ -96,7 +96,7 @@ def servo_recover(robot, cfg, client, args, log=print) -> dict:
     except Exception as e:  # never leave the arm mid-servo on an error
         robot.hold()
         return {"result": f"error: {type(e).__name__}: {e}", "centred": False, "trace": s.trace}
-    p, _ = client.yes(robot.get_images(), (
+    p, _ = (judge or client).yes(robot.get_images(), (
         f"Is the {args.jev_object} held between the robot gripper's fingers right now "
         f"(lifted off the table, not lying on the table)?"), args.instruction,
         float(robot.get_joint_state()[cfg.gripper_idx[0]]))
@@ -130,6 +130,12 @@ def add_jev_args(ap) -> None:
                    help="servo never goes below --grasp-z minus this (m)")
     g.add_argument("--grasp-z", type=float, default=0.151,
                    help="end-pose z of a grasp, m (median of the cube_grid demos)")
+    g.add_argument("--judge", choices=["lite", "jev", "both"], default="lite",
+                   help="grasp/place judge: JEV-lite (~15 ms, real_robot/jevlite.py), JEV-9B (~170 ms), "
+                        "or both (a placement needs both to agree)")
+    g.add_argument("--lite-model", default="outputs/jevlite/model_dinos_g4_aug")
+    g.add_argument("--hover-s", type=float, default=3.0,
+                   help="open and still this long = hover (pi0.5 lined up, never closed); 0 = off")
     g.add_argument("--empty-check", action="store_true",
                    help="also call a grasp missed when the gripper closes on nothing (no JEV)")
 
@@ -172,7 +178,14 @@ def main(argv=None) -> int:
                     f"LIVE at speed {args.speed}, up to {args.attempts} attempts. "
                     f"Hand on e-stop? type YES: ") != "YES":
                 return 1
-        client = JevClient(args.jev_url) if args.jev == "on" else None
+        client = judge = None
+        if args.jev == "on":
+            client = JevClient(args.jev_url)  # JEV-9B: direction servo, and the judge if --judge jev
+            judge = client
+            if args.judge in ("lite", "both"):
+                from .jevlite import LiteJudge
+
+                judge = LiteJudge(args.lite_model, jev=client, mode=args.judge)
         policy = make_policy(args, robot, cfg)
         attempts, result, held_width = [], "failed", None
         n = args.attempts if args.jev == "on" and not args.jev_dry else 1
@@ -191,12 +204,13 @@ def main(argv=None) -> int:
                     held_width = float(robot.get_joint_state()[cfg.gripper_idx[0]])
                 else:
                     held_width = None
-                if client is not None:
-                    mon = JevMonitor(client, args.instruction, args.jev_object, args.jev_container,
+                if judge is not None:
+                    mon = JevMonitor(judge, args.instruction, args.jev_object, args.jev_container,
                                      grasp_thr=args.grasp_thr, place_thr=args.place_thr,
                                      gripper_text=not args.no_gripper_text,
                                      empty_check=args.empty_check, gripper_idx=cfg.gripper_idx[0],
-                                     holding_width=held_width)
+                                     holding_width=held_width, hover_s=args.hover_s,
+                                     frame_dir=os.path.join(out, f"attempt{a}", "judged"))
                 summary = run(robot, policy, cfg, instruction=args.instruction, live=args.live,
                               speed=args.speed, max_steps=args.max_steps,
                               execute_steps=args.execute_steps,
@@ -215,9 +229,6 @@ def main(argv=None) -> int:
                         except Exception as e:
                             print(f"[jev] final check failed: {e}")
                     verdict = mon.verdict
-                    if verdict == "timeout" and not any(e.kind == "closed" for e in mon.events):
-                        verdict = "missed_grasp"  # hovered and never closed: same fix
-                        print("[jev] timed out without ever closing: treating as missed_grasp (hover)")
                     summary["jev_events"] = [dict(t=e.t, step=e.step, kind=e.kind, **e.detail)
                                              for e in mon.events]
                 summary["jev_verdict"] = verdict
@@ -233,8 +244,8 @@ def main(argv=None) -> int:
                     result = "success"
                     break
                 if a < n:
-                    if args.live and args.recover != "home" and verdict == "missed_grasp":
-                        summary["servo"] = servo_recover(robot, cfg, client, args)
+                    if args.live and args.recover != "home" and verdict in ("missed_grasp", "hover"):
+                        summary["servo"] = servo_recover(robot, cfg, client, args, judge=judge)
                         print(f"JEV servo: {summary['servo'].get('result')}")
                         if summary["servo"].get("result") == "grasped":
                             continue  # pi0.5 carries and places from here

@@ -32,6 +32,12 @@ OPEN_M = 0.080      # gripper wider than this: getting ready to grasp
 STALL_M = 0.0015    # width change below this between two feeds: stalled
 RELEASE_M = 0.0035  # stalled width grows by this: releasing
 EMPTY_M = 0.020     # stalled narrower than this: closed on nothing
+# Hover: open, and the arm (J1-J6) moves slower than HOVER_RAD_S over HOVER_WIN_S
+# windows for HOVER_S. Demos never do this for more than 0.93 s; the live
+# pi0.5 hovers on 2026-11-05 lasted 7-80 s (outputs: real_robot_logs/20261105-14*).
+HOVER_RAD_S = 0.02
+HOVER_WIN_S = 0.5
+HOVER_S = 3.0
 
 
 def data_url(img: np.ndarray, width: int = 448, quality: int = 85) -> str:
@@ -99,14 +105,16 @@ class JevMonitor:
     """Feed it every observation (runner.run(observer=...)); it sets
     stop_event with a verdict when the attempt is decided.
 
-    verdict: "success", "missed_grasp", "dropped", "missed_place" or None.
+    verdict: "success", "missed_grasp", "dropped", "missed_place", "hover"
+    (open and still: pi0.5 lined up but never closed), "not_released", "timeout" or None.
     Queries run in a worker thread so the control loop never waits on JEV.
     """
 
     def __init__(self, client, task: str, obj: str, container: str, gripper_idx: int = 6,
                  grasp_thr: float = 0.35, place_thr: float = 0.6, lift_s: float = 1.2,
                  settle_s: float = 1.0, recheck_s: float = 2.0, gripper_text: bool = True,
-                 empty_check: bool = False, holding_width: float | None = None, log=print):
+                 empty_check: bool = False, holding_width: float | None = None,
+                 hover_s: float = HOVER_S, frame_dir: str | None = None, log=print):
         self.client, self.task, self.gi, self.log = client, task, gripper_idx, log
         self.q = questions(obj, container)
         self.grasp_thr, self.place_thr = grasp_thr, place_thr
@@ -120,6 +128,10 @@ class JevMonitor:
         self._stall_g = 0.0
         if holding_width is not None:  # attempt starts with the object already in the gripper
             self.phase, self._stall_g = "holding", holding_width
+        self.hover_s = hover_s  # 0: off
+        self.frame_dir = frame_dir  # save the frames behind every judgement (training data)
+        self._hist: list[tuple[float, np.ndarray]] = []  # (time, J1-J6) for the hover check
+        self._still_since: float | None = None
         self._due: tuple[str, float] | None = None  # (question, at time)
         self._busy = False
         self._lock = threading.Lock()
@@ -131,6 +143,8 @@ class JevMonitor:
         prev, self._prev_g = self._prev_g, g
         if self.stop_event.is_set():
             return
+        if self.phase == "open" and self.hover_s > 0 and self._hovering(now, q_real):
+            return self._decide(step, "hover", why=f"open and still for {self.hover_s:.0f} s")
         if self.phase == "approach" and g > OPEN_M:
             self._event(step, "opened", g=g)
             self.phase = "open"
@@ -153,6 +167,22 @@ class JevMonitor:
                 self._busy = True
                 threading.Thread(target=self._ask, args=(name, images, g, step), daemon=True).start()
 
+    def _hovering(self, now: float, q_real: np.ndarray) -> bool:
+        """True once the arm has been open and still for hover_s."""
+        self._hist.append((now, np.asarray(q_real[:6], float)))
+        while len(self._hist) > 2 and self._hist[1][0] <= now - HOVER_WIN_S:
+            self._hist.pop(0)
+        t0, q0 = self._hist[0]
+        if now - t0 < 0.8 * HOVER_WIN_S:
+            return False
+        speed = float(np.linalg.norm(self._hist[-1][1] - q0)) / (now - t0)
+        if speed >= HOVER_RAD_S:
+            self._still_since = None
+            return False
+        if self._still_since is None:
+            self._still_since = now
+        return now - self._still_since >= self.hover_s
+
     # -- worker -------------------------------------------------------------------------
     def _ask(self, name: str, images, g: float, step: int) -> None:
         try:
@@ -163,6 +193,7 @@ class JevMonitor:
                 self._busy = False
             return
         self._event(step, "jev", question=name, p_yes=round(p, 4), seconds=round(dt, 3), phase=self.phase)
+        self._save(step, name, p, g, images)
         with self._lock:
             self._busy = False
             if self.stop_event.is_set():
@@ -184,11 +215,41 @@ class JevMonitor:
         """End of attempt without a verdict (step budget ran out): ask once."""
         if self.verdict:
             return self.verdict
+        # Rules first: the gripper says what JEV cannot be trusted on. On
+        # 2026-11-05 JEV-9B scored a cube held over the bowl as placed (0.82).
+        if self.phase in ("approach", "open"):
+            self._decide(step, "hover" if self.phase == "open" else "timeout", why="never closed")
+            return self.verdict
+        if self.phase == "holding":
+            self._decide(step, "not_released", why="still holding at the end")
+            return self.verdict
         p, dt = self.client.yes(images, self.q["placed"], self.task,
                                 float(q_real[self.gi]) if self.gripper_text else None)
         self._event(step, "jev", question="placed", p_yes=round(p, 4), seconds=round(dt, 3), phase="final")
+        self._save(step, "placed_final", p, float(q_real[self.gi]), images)
         self._decide(step, "success" if p >= self.place_thr else "timeout", p_yes=p)
         return self.verdict
+
+    def _save(self, step: int, name: str, p: float, g: float, images) -> None:
+        if not self.frame_dir or not images:
+            return
+        try:
+            import json
+            import os
+
+            from PIL import Image
+
+            os.makedirs(self.frame_dir, exist_ok=True)
+            rec = {"step": step, "question": name, "p_yes": round(p, 4), "gripper_m": round(g, 4),
+                   "phase": self.phase, "t": time.time()}
+            for cam, im in images.items():
+                path = os.path.join(self.frame_dir, f"s{step:05d}_{name}_{cam}.jpg")
+                Image.fromarray(im).save(path, quality=90)
+                rec[cam] = path
+            with open(os.path.join(self.frame_dir, "frames.jsonl"), "a") as fh:
+                fh.write(json.dumps(rec) + "\n")
+        except Exception as e:  # never let logging stop the robot
+            self.log(f"[jev] frame save failed: {e}")
 
     def _seen_hold(self) -> bool:
         return any(e.kind == "jev" and e.detail.get("question") == "holding"

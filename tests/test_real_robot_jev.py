@@ -139,6 +139,92 @@ def test_servo_converges_with_oracle_judge():
 import unittest  # noqa: E402  (make test runs unittest discover)
 
 
+def _fake_clock_drive(mon, qs, hz=30.0):
+    """Feed joint vectors at hz with the monitor's clock faked (no sleeping)."""
+    import real_robot.jev as J
+
+    real, t = J.time.time, [1000.0]
+    J.time.time = lambda: t[0]
+    try:
+        for i, q in enumerate(qs):
+            t[0] = 1000.0 + i / hz
+            mon({}, np.asarray(q, float), i)
+            if mon.stop_event.is_set():
+                break
+    finally:
+        J.time.time = real
+
+
+def test_hover_open_and_still_stops():
+    m = mon_for(FakeJev({"holding": 0.9, "placed": 0.9}))
+    q = np.zeros(7)
+    q[6] = 0.095
+    _fake_clock_drive(m, [q] * (30 * 6))  # open and motionless for 6 s
+    assert m.verdict == "hover"
+    hover_at = next(e.step for e in m.events if e.kind == "verdict")
+    assert 30 * 3 <= hover_at <= 30 * 4.5
+
+
+def test_no_hover_while_moving_or_disabled():
+    m = mon_for(FakeJev({"holding": 0.9, "placed": 0.9}))
+    qs = []
+    for i in range(30 * 8):  # open, J1 sweeping at 0.05 rad/s (a slow approach)
+        q = np.zeros(7)
+        q[0], q[6] = 0.05 * i / 30, 0.095
+        qs.append(q)
+    _fake_clock_drive(m, qs)
+    assert m.verdict is None
+    m2 = mon_for(FakeJev({"holding": 0.9, "placed": 0.9}), hover_s=0)
+    q = np.zeros(7)
+    q[6] = 0.095
+    _fake_clock_drive(m2, [q] * (30 * 6))
+    assert m2.verdict is None
+
+
+def test_final_check_rules_before_jev():
+    # held over the bowl, never released: JEV says placed (the 2026-11-05 false positive)
+    fake = FakeJev({"holding": 0.9, "placed": 0.95})
+    m = mon_for(fake)
+    drive(m, trace()[:30])  # closes and holds, no release
+    assert m.final_check({}, np.r_[np.zeros(6), 0.062], 99) == "not_released"
+    assert "placed" not in fake.asked
+    m = mon_for(FakeJev({"holding": 0.9, "placed": 0.95}), hover_s=0)
+    drive(m, [0.0] * 3 + [0.095] * 3)  # opened, never closed
+    assert m.final_check({}, np.r_[np.zeros(6), 0.095], 9) == "hover"
+
+
+def test_lite_judge_question_routing():
+    from real_robot.jev import questions as Q
+    from real_robot.jevlite import LiteJudge
+
+    q = Q("Rubik's cube", "bowl")
+    assert LiteJudge.kind(q["holding"]) == "holding"
+    assert LiteJudge.kind(q["placed"]) == "placed"
+    assert LiteJudge.kind("Is the Rubik's cube held between the robot gripper's fingers right now "
+                          "(lifted off the table, not lying on the table)?") == "holding"
+
+
+def test_judged_frames_saved(tmp=None):
+    import importlib.util
+    import json, os, tempfile
+
+    if importlib.util.find_spec("PIL") is None:
+        return  # robot venv: no Pillow (live runs use the lerobot venv, which has it)
+    d = tempfile.mkdtemp()
+    m = mon_for(FakeJev({"holding": 0.9, "placed": 0.8}), frame_dir=d)
+    q = np.zeros(7)
+    widths = trace()
+    for i, g in enumerate(widths):
+        q[6] = g
+        m({"cam_wrist": np.zeros((8, 8, 3), np.uint8)}, q, i)
+        time.sleep(0.05)
+        if m.stop_event.is_set():
+            break
+    time.sleep(0.2)
+    recs = [json.loads(l) for l in open(os.path.join(d, "frames.jsonl"))]
+    assert [r["question"] for r in recs][0] == "holding" and os.path.exists(recs[0]["cam_wrist"])
+
+
 class TestJev(unittest.TestCase):
     pass
 
