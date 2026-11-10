@@ -225,6 +225,89 @@ def test_judged_frames_saved(tmp=None):
     assert [r["question"] for r in recs][0] == "holding" and os.path.exists(recs[0]["cam_wrist"])
 
 
+class _ArmXYZ:
+    """Fake arm: J1 rotates the reach plane; J2/J3/J5 move the gripper linearly."""
+    A = np.array([[0.30, 0.10, 0.05], [0.0, 0.0, 0.0], [0.25, -0.20, 0.08]])
+
+    def __init__(self):
+        self.q = np.array([0.0, 1.0, -1.0, 0, 0.6, 0, 0.5])
+        self.q0 = self.q.copy()
+
+    def _p(self, q):
+        local = np.array([0.30, 0.0, 0.20]) + self.A @ (q - self.q0)[[1, 2, 4]]
+        c, s = np.cos(q[0]), np.sin(q[0])
+        return np.array([c * local[0] - s * local[1], s * local[0] + c * local[1], local[2]])
+
+    def get_joint_state(self): return self.q.copy()
+    def command_joints(self, q): self.q = np.asarray(q, float)
+    def get_end_pose(self): return np.r_[self._p(self.q), 0, 0, 0]
+    def get_images(self): return {"cam_wrist": np.zeros((4, 4, 3), np.uint8)}
+    def hold(self): pass
+
+
+def _servo(arm):
+    import real_robot.backends as B
+    import real_robot.jev_servo as S
+    from real_robot.config import load_config
+    from real_robot.safety import SafetyFilter
+
+    cfg = load_config("real_robot/configs/piper_1_clamp.json")
+    s = S.JevServo.__new__(S.JevServo)
+    s.robot, s.cfg, s.hz, s.log, s.trace = arm, cfg, 500.0, lambda *a: None, []
+    s.safety = SafetyFilter(cfg)
+    return s
+
+
+def _no_sleep(fn):
+    """Run fn with time.sleep stubbed (servo moves), then restore it for the other tests."""
+    real = time.sleep
+    time.sleep = lambda t: None
+    try:
+        return fn()
+    finally:
+        time.sleep = real
+
+
+def test_shift_xy_moves_sideways_with_j1():
+    _no_sleep(_shift_xy)
+
+
+def _shift_xy():
+    arm = _ArmXYZ()
+    s = _servo(arm)
+    s.guard_from_here(0.10)
+    p0 = arm.get_end_pose()[:3]
+    out = s.shift_xy(s.jacobian(joints=(0, 1, 2, 4)), [0.01, 0.03])  # mostly tangential
+    p1 = arm.get_end_pose()[:3]
+    assert out["reached"], out
+    assert np.allclose(p1[:2] - p0[:2], [0.01, 0.03], atol=0.004) and abs(p1[2] - p0[2]) < 0.004
+
+
+def test_align_shifts_to_predicted_grasp_then_reports_height():
+    _no_sleep(_align)
+
+
+def _align():
+    import types
+
+    import real_robot.jev_guard as G
+
+    arm = _ArmXYZ()
+    s = _servo(arm)
+    s.guard_from_here(0.10)
+    goal = arm.get_end_pose()[:3] + np.array([0.0, 0.04, -0.05])  # 4 cm sideways, 5 cm down
+
+    class Oracle:
+        def __call__(self, images, p): return goal - np.asarray(p)
+
+    G._OFFSET["oracle"] = Oracle()
+    args = types.SimpleNamespace(offset_model="oracle", align_deadband=0.015, align_max=0.06, grasp_z=0.151)
+    out = G.align(arm, s, args, log=lambda *a: None)
+    p = arm.get_end_pose()[:3]
+    assert np.linalg.norm(p[:2] - goal[:2]) < 0.006, (p, goal)
+    assert abs(out["grasp_z"] - float(np.clip(goal[2], 0.141, 0.181))) < 0.003
+
+
 class TestJev(unittest.TestCase):
     pass
 

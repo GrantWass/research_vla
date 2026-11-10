@@ -104,6 +104,29 @@ the gripper); the misses are frames with the cube at the image edge.
 Caveat: JEV-lite knows this rig and this task only; JEV-9B is general. Use `--judge both` to require
 both to agree before calling a placement.
 
+## Grasp-offset model and `--recover align` (2026-11-10)
+
+`real_robot/jevlite_offset.py`. For every approach frame of a demo, the end-effector position when the
+gripper starts closing is known, so the offset to it is an exact, real label (no synthetic image
+shifts), expressed in the arm's frame: radial (reach), tangential (what J1 changes), dz. An MLP on the
+same JEV-lite features regresses it (frames within 15 cm of the grasp; 3,062 train / 846 held out).
+
+| held-out, by distance to the grasp | correction brings the gripper closer | xy error after one correction |
+|---|---|---|
+| 3–6 cm (median 2.5 cm) | 93% | 1.1 cm |
+| 6–15 cm (median 6.1 cm) | 99% | 1.3 cm |
+| < 3 cm | — (already aligned; deadband) | 0.6 cm |
+
+MAE radial 0.75 / tangential 0.57 / height 0.85 cm (predicting the mean: 2.07 / 0.68 / 2.41). Through the
+runtime path on full-resolution held-out frames: 4.1 cm → 1.3 cm median, closer in 94%.
+
+`--recover align` (on `hover` or `missed_grasp`): average 3 predictions; if the sideways offset is over
+`--align-deadband` (1.5 cm), shift there (≤ `--align-max` 6 cm, J1 included, closed loop on the end pose,
+two rounds); then descend to the predicted grasp height (clamped to `--grasp-z` −1/+3 cm), close, lift,
+check. All moves go through the servo's workspace guard. Fake-arm tests cover the shift and the
+oracle case; **not yet run live**. Tangential is the weak axis: demos approach nearly on target sideways,
+so there is little sideways variety to learn from; real hover logs (`judged/` frames) are the fix.
+
 ## Monitor rules (no model needed)
 
 - **Hover**: gripper open and J1–J6 slower than 0.02 rad/s for 3 s (`--hover-s`, 0 = off) ends the
@@ -124,6 +147,7 @@ both to agree before calling a placement.
    ```bash
    make jev-live CKPT_HF=<ckpt> CONFIG=real_robot/configs/piper_1_clamp.json INSTR="pick up the Rubik's cube and put it in the bowl" STEPS=1200 SPEED=1 JEV=off
    make jev-live CKPT_HF=<ckpt> CONFIG=real_robot/configs/piper_1_clamp.json INSTR="pick up the Rubik's cube and put it in the bowl" STEPS=1200 SPEED=1 ATTEMPTS=2 JEV_FLAGS="--recover descend"
+   make jev-live CKPT_HF=<ckpt> CONFIG=real_robot/configs/piper_1_clamp.json INSTR="pick up the Rubik's cube and put it in the bowl" STEPS=1200 SPEED=1 ATTEMPTS=2 JEV_FLAGS="--recover align"
    ```
    (`--judge lite` is the default; add `--judge both` to cross-check with JEV-9B.)
 
@@ -136,6 +160,7 @@ python -m real_robot.jevlite_data --dataset demos/cube_grid_all_pi05 --out outpu
 python -m real_robot.jevlite features --frames outputs/jevlite/frames --out outputs/jevlite/feats_dinos_g4.npz --grid 4
 for s in 1 2; do python -m real_robot.jevlite features --frames outputs/jevlite/frames --out outputs/jevlite/feats_dinos_g4_aug$s.npz --grid 4 --aug-seed $s; done
 python -m real_robot.jevlite train --feats outputs/jevlite/feats_dinos_g4.npz --out outputs/jevlite/model_dinos_g4_aug --grid 4 --extra outputs/jevlite/feats_dinos_g4_aug1.npz,outputs/jevlite/feats_dinos_g4_aug2.npz
+python -m real_robot.jevlite_offset train --dataset demos/cube_grid_all_pi05 --frames outputs/jevlite/frames --feats outputs/jevlite/feats_dinos_g4.npz --extra outputs/jevlite/feats_dinos_g4_aug1.npz,outputs/jevlite/feats_dinos_g4_aug2.npz --out outputs/jevlite/offset_dinos_g4
 python -m real_robot.jevlite_compare --dataset demos/cube_grid_all_pi05 --frames outputs/jevlite/frames --lite outputs/jevlite/model_dinos_g4_aug --out outputs/jevlite/compare.json
 ```
 (lerobot venv; ~6 min for frames, ~1.5 min per feature pass, seconds to train.)
@@ -149,6 +174,6 @@ python -m real_robot.jevlite_compare --dataset demos/cube_grid_all_pi05 --frames
 - `real_robot/runner.py`: `run(observer=, stop_event=)`, `build_parser()`, `make_policy()`.
 - `scripts/serve_jev.sh` (`make jev-server`): JEV-9B FP8 + adapter on the 3090 (~15 GB).
 - `outputs/weak_20261104.sh`: the weak-checkpoint training job.
-- `real_robot/jevlite.py` (encoder, train, `JevLite`, `LiteJudge`), `jevlite_data.py` (phase labels from gripper traces), `jevlite_compare.py` (vs JEV-9B).
+- `real_robot/jevlite.py` (encoder, train, `JevLite`, `LiteJudge`), `jevlite_data.py` (phase labels from gripper traces), `jevlite_compare.py` (vs JEV-9B), `jevlite_offset.py` (grasp-offset regressor, `GraspOffset`).
 - Tests: `tests/test_real_robot_jev.py` (monitor phases, runner hooks, servo convergence with an oracle judge).
 

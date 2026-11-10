@@ -58,6 +58,9 @@ def servo_recover(robot, cfg, client, args, log=print, judge=None) -> dict:
     --recover servo        JEV centres the gripper over the object, pi0.5 takes over
     --recover servo-grasp  JEV centres, then descend to --grasp-z, close, check
     --recover descend      no centring (pi0.5 already lined up): descend, close, check
+    --recover align        JEV-lite grasp-offset model (real_robot/jevlite_offset.py) predicts
+                           where the demo grasp would be: shift there (J1 included), then descend
+                           to the predicted grasp height, close, check
     Every servo move is bounded (z floor, J1 and reach excursion) and stops
     if the arm leaves our control."""
     from .jev_servo import JevServo, ServoStop
@@ -73,13 +76,16 @@ def servo_recover(robot, cfg, client, args, log=print, judge=None) -> dict:
     try:
         if args.recover == "descend":
             out = {"centred": True, "result": "skipped centring"}
+        elif args.recover == "align":
+            out = align(robot, s, args, log)
         else:
             out = s.recover(lift_m=args.servo_lift)
             out["result"] = "centred" if out["centred"] else "not_centred"
         if args.recover == "servo" or not out["centred"]:
             return out
         J = s.jacobian()
-        out["descend"] = s.descend(J, args.grasp_z)
+        z_target = out.get("grasp_z", args.grasp_z)
+        out["descend"] = s.descend(J, z_target)
         closed = robot.get_joint_state()
         for k in cfg.gripper_idx:
             closed[k] = 0.0
@@ -104,6 +110,41 @@ def servo_recover(robot, cfg, client, args, log=print, judge=None) -> dict:
     return out
 
 
+_OFFSET = {}
+
+
+def align(robot, s, args, log=print) -> dict:
+    """Shift to where the grasp-offset model says the demo grasp would be, then
+    report the grasp height to descend to. Deadband 1.5 cm, at most 6 cm per
+    shift, two rounds; the servo's workspace guard bounds every move."""
+    from .jevlite_offset import GraspOffset
+
+    if args.offset_model not in _OFFSET:
+        _OFFSET[args.offset_model] = GraspOffset(args.offset_model)
+    model = _OFFSET[args.offset_model]
+    J4 = s.jacobian(joints=(0, 1, 2, 4))
+    rounds = []
+    for r in range(2):
+        p = np.asarray(robot.get_end_pose()[:3], float)
+        d = np.mean([model(robot.get_images(), p) for _ in range(3)], axis=0)
+        dxy = d[:2]
+        n = float(np.linalg.norm(dxy))
+        rounds.append({"pred_cm": [round(100 * float(x), 2) for x in d]})
+        log(f"[align] round {r}: predicted grasp offset x {100*d[0]:+.1f} y {100*d[1]:+.1f} "
+            f"z {100*d[2]:+.1f} cm")
+        if n < args.align_deadband:
+            break
+        if n > args.align_max:
+            dxy = dxy * (args.align_max / n)
+        rounds[-1]["shift"] = s.shift_xy(J4, dxy)
+    p = np.asarray(robot.get_end_pose()[:3], float)
+    dz = float(np.mean([model(robot.get_images(), p)[2] for _ in range(3)]))
+    # trust the predicted height only near the demos' range of grasp heights
+    gz = float(np.clip(p[2] + dz, args.grasp_z - 0.01, args.grasp_z + 0.03))
+    log(f"[align] grasp height {gz:.3f} (predicted {p[2] + dz:.3f})")
+    return {"centred": True, "result": "aligned", "rounds": rounds, "grasp_z": gz}
+
+
 def add_jev_args(ap) -> None:
     g = ap.add_argument_group("JEV")
     g.add_argument("--jev", choices=["on", "off"], default="on")
@@ -116,7 +157,7 @@ def add_jev_args(ap) -> None:
     g.add_argument("--place-thr", type=float, default=0.6, help="P(in container) at or above = success")
     g.add_argument("--no-gripper-text", action="store_true",
                    help="do not tell JEV the gripper width (images only)")
-    g.add_argument("--recover", choices=["home", "servo", "servo-grasp", "descend"], default="home",
+    g.add_argument("--recover", choices=["home", "servo", "servo-grasp", "descend", "align"], default="home",
                    help="after a missed grasp: fold home and retry (home); JEV-servo over the object, "
                         "then pi0.5 retries from there (servo); or servo, descend, close (servo-grasp)")
     g.add_argument("--servo-calib", default=None,
@@ -133,6 +174,10 @@ def add_jev_args(ap) -> None:
     g.add_argument("--judge", choices=["lite", "jev", "both"], default="lite",
                    help="grasp/place judge: JEV-lite (~15 ms, real_robot/jevlite.py), JEV-9B (~170 ms), "
                         "or both (a placement needs both to agree)")
+    g.add_argument("--offset-model", default="outputs/jevlite/offset_dinos_g4",
+                   help="--recover align: grasp-offset regressor (real_robot/jevlite_offset.py)")
+    g.add_argument("--align-deadband", type=float, default=0.015, help="m: smaller offsets are left alone")
+    g.add_argument("--align-max", type=float, default=0.06, help="m: largest shift per round")
     g.add_argument("--lite-model", default="outputs/jevlite/model_dinos_g4_aug")
     g.add_argument("--hover-s", type=float, default=3.0,
                    help="open and still this long = hover (pi0.5 lined up, never closed); 0 = off")

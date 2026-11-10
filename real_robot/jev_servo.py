@@ -221,6 +221,27 @@ class JevServo:
                 return {"reached": False, "blocked": True, "z": z1, "iters": it + 1}
         return {"reached": False, "z": float(self.robot.get_end_pose()[2]), "iters": max_iters}
 
+    def shift_xy(self, J: np.ndarray, dxy, step_m: float = 0.01, max_iters: int = 20,
+                 joints=(0, 1, 2, 4)) -> dict:
+        """Move the gripper horizontally by dxy (base frame, m) at constant height,
+        <= step_m per move, closed loop on the measured end pose. J: jacobian(joints)."""
+        p0 = np.asarray(self.robot.get_end_pose()[:3], float)
+        goal = p0 + np.r_[np.asarray(dxy, float), 0.0]
+        for it in range(max_iters):
+            p = np.asarray(self.robot.get_end_pose()[:3], float)
+            err = goal - p
+            if np.linalg.norm(err[:2]) < 0.003:
+                return {"reached": True, "iters": it, "err_m": round(float(np.linalg.norm(err[:2])), 4)}
+            n = np.linalg.norm(err[:2])
+            want = np.r_[err[:2] * min(1.0, step_m / max(n, 1e-9)), err[2]]
+            sol, *_ = np.linalg.lstsq(J, want, rcond=None)
+            dq = np.zeros(len(self.robot.get_joint_state()))
+            dq[list(joints)] = sol
+            self._move(dq)
+            self.log(f"[servo] shift {it}: xy error {100 * n:.1f} cm")
+        p = np.asarray(self.robot.get_end_pose()[:3], float)
+        return {"reached": False, "iters": max_iters, "err_m": round(float(np.linalg.norm((goal - p)[:2])), 4)}
+
     def recover(self, lift_m: float = 0.04) -> dict:
         """Lift, centre left/right with J1, then near/far along the reach. The
         caller decides what comes next (hand back to pi0.5, or descend + grasp)."""
