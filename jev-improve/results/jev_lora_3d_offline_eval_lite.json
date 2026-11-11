@@ -1,0 +1,52 @@
+{
+ "n": 300,
+ "episodes": 20,
+ "offset_ens5": {
+  "radial": {
+   "bucket_acc": 0.623,
+   "direction_when_off": 0.98,
+   "mae_cm": 0.82
+  },
+  "tangential": {
+   "bucket_acc": 0.747,
+   "direction_when_off": 0.874,
+   "mae_cm": 0.58
+  },
+  "dz": {
+   "bucket_acc": 0.677,
+   "direction_when_off": 1.0,
+   "mae_cm": 0.9
+  },
+  "one_correction": {
+   "n_far": 107,
+   "median_xy_before_cm": 5.41,
+   "median_xy_after_cm": 1.36,
+   "closer": 1.0
+  },
+  "latency_ms": 29.8
+ },
+ "offset_buckets": {
+  "radial": {
+   "bucket_acc": 0.677,
+   "direction_when_off": 0.97,
+   "mae_cm": 0.93
+  },
+  "tangential": {
+   "bucket_acc": 0.733,
+   "direction_when_off": 0.713,
+   "mae_cm": 0.64
+  },
+  "dz": {
+   "bucket_acc": 0.687,
+   "direction_when_off": 1.0,
+   "mae_cm": 1.09
+  },
+  "one_correction": {
+   "n_far": 107,
+   "median_xy_before_cm": 5.41,
+   "median_xy_after_cm": 1.79,
+   "closer": 1.0
+  },
+  "latency_ms": 21.2
+ }
+}

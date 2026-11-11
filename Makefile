@@ -116,7 +116,8 @@ leader-restore:
 # commands streamed at 100 Hz through a 2 Hz smoothing filter; docs/robot.md.
 # The model flags are shared by the policy server and in-process runs.
 NOISE_SEED ?= 0
-MODEL_FLAGS = --lerobot $(CKPT_HF) --base-offset-deg 90 $(if $(NOISE_SEED),--noise-seed $(NOISE_SEED))
+MODEL_FLAGS = --lerobot $(CKPT_HF) --base-offset-deg 90 $(if $(NOISE_SEED),--noise-seed $(NOISE_SEED)) \
+	$(if $(DENOISE),--denoise-steps $(DENOISE)) $(if $(BEST_OF),--best-of $(BEST_OF))
 POLICY_SOCK ?= $(HOME)/.cache/real_robot/policy.sock
 # With a policy server running (make policy-server), runs connect to it and
 # start in ~1 s; otherwise they load and compile the model (~95 s).

@@ -1,0 +1,213 @@
+{
+ "frames": 170,
+ "instr": [
+  "pick up the Rubik's cube and put it in the bowl",
+  "move down to the Rubik's cube",
+  "grasp the Rubik's cube",
+  "put the Rubik's cube in the bowl",
+  "open the gripper"
+ ],
+ "scales": [
+  0.5,
+  1.0,
+  1.5,
+  2.0
+ ],
+ "n": 16,
+ "sampler_latency_ms": 1329.9973409157246,
+ "main_s1_n1": {
+  "single": 0.0588,
+  "random": 0.0588,
+  "oracle": 0.0588,
+  "verifier": 0.0588,
+  "verifier_beats_single": 0.0
+ },
+ "main_s1_n2": {
+  "single": 0.0588,
+  "random": 0.0611,
+  "oracle": 0.0474,
+  "verifier": 0.0568,
+  "verifier_beats_single": 0.3
+ },
+ "main_s1_n4": {
+  "single": 0.0588,
+  "random": 0.0586,
+  "oracle": 0.0395,
+  "verifier": 0.0541,
+  "verifier_beats_single": 0.506
+ },
+ "main_s1_n8": {
+  "single": 0.0588,
+  "random": 0.0588,
+  "oracle": 0.0333,
+  "verifier": 0.0544,
+  "verifier_beats_single": 0.529
+ },
+ "main_s1_n16": {
+  "single": 0.0588,
+  "random": 0.0589,
+  "oracle": 0.0292,
+  "verifier": 0.0562,
+  "verifier_beats_single": 0.518
+ },
+ "main_scale0.5_n16": {
+  "single": 0.0588,
+  "random": 0.0509,
+  "oracle": 0.0344,
+  "verifier": 0.0482,
+  "verifier_beats_single": 0.694
+ },
+ "main_scale1.0_n16": {
+  "single": 0.0588,
+  "random": 0.0589,
+  "oracle": 0.0292,
+  "verifier": 0.0562,
+  "verifier_beats_single": 0.518
+ },
+ "main_scale1.5_n16": {
+  "single": 0.0588,
+  "random": 0.0957,
+  "oracle": 0.0529,
+  "verifier": 0.0943,
+  "verifier_beats_single": 0.188
+ },
+ "main_scale2.0_n16": {
+  "single": 0.0588,
+  "random": 0.2445,
+  "oracle": 0.1528,
+  "verifier": 0.2463,
+  "verifier_beats_single": 0.006
+ },
+ "main_allscales_n16": {
+  "single": 0.0588,
+  "random": 0.1125,
+  "oracle": 0.0275,
+  "verifier": 0.2181,
+  "verifier_beats_single": 0.041
+ },
+ "allinstr_s1_n16": {
+  "single": 0.0588,
+  "random": 0.0601,
+  "oracle": 0.0229,
+  "verifier": 0.0601,
+  "verifier_beats_single": 0.494
+ },
+ "allinstr_allscales_n16": {
+  "single": 0.0588,
+  "random": 0.1141,
+  "oracle": 0.0219,
+  "verifier": 0.2218,
+  "verifier_beats_single": 0.041
+ },
+ "closing_frames": {
+  "n": 38,
+  "single_closes": 0.658,
+  "any_candidate_closes": 1.0,
+  "main_instr_any_closes": 1.0,
+  "verifier_pick_closes": 0.921,
+  "per_instr_close_rate": [
+   0.762,
+   0.648,
+   0.678,
+   0.753,
+   0.402
+  ],
+  "per_scale_close_rate": [
+   0.378,
+   0.49,
+   0.737,
+   0.99
+  ]
+ },
+ "false_close_rate_on_other_frames": {
+  "single": 0.258,
+  "verifier_pick": 0.924
+ },
+ "by_point_allinstr_allscales": {
+  "approach_30": {
+   "single": 0.0761,
+   "oracle": 0.0081,
+   "verifier": 0.2005,
+   "picked_instr": [
+    1,
+    1,
+    0,
+    2,
+    2
+   ]
+  },
+  "approach_45": {
+   "single": 0.028,
+   "oracle": 0.0141,
+   "verifier": 0.1926,
+   "picked_instr": [
+    1,
+    2,
+    0,
+    2,
+    1
+   ]
+  },
+  "carry": {
+   "single": 0.0562,
+   "oracle": 0.0197,
+   "verifier": 0.2213,
+   "picked_instr": [
+    1,
+    0,
+    1,
+    0,
+    4
+   ]
+  },
+  "every": {
+   "single": 0.059,
+   "oracle": 0.0229,
+   "verifier": 0.2245,
+   "picked_instr": [
+    12,
+    29,
+    25,
+    17,
+    51
+   ]
+  },
+  "pregrasp_15": {
+   "single": 0.0605,
+   "oracle": 0.0173,
+   "verifier": 0.2022,
+   "picked_instr": [
+    0,
+    1,
+    0,
+    3,
+    2
+   ]
+  },
+  "pregrasp_5": {
+   "single": 0.08,
+   "oracle": 0.0278,
+   "verifier": 0.2374,
+   "picked_instr": [
+    3,
+    0,
+    0,
+    0,
+    3
+   ]
+  },
+  "prerelease": {
+   "single": 0.046,
+   "oracle": 0.0233,
+   "verifier": 0.2167,
+   "picked_instr": [
+    1,
+    0,
+    1,
+    0,
+    4
+   ]
+  }
+ },
+ "verifier_ms_all_candidates": 0.76
+}

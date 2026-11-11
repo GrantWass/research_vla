@@ -1,0 +1,107 @@
+{
+ "zero_shot": {
+  "radial": {
+   "bucket_acc": 0.282,
+   "within_one": 0.672,
+   "sign_acc_when_off": 0.729,
+   "step_mae_cm": 2.61
+  },
+  "tangential": {
+   "bucket_acc": 0.608,
+   "within_one": 0.844,
+   "sign_acc_when_off": 0.679,
+   "step_mae_cm": 1.07
+  },
+  "dz": {
+   "bucket_acc": 0.219,
+   "within_one": 0.443,
+   "sign_acc_when_off": 0.349,
+   "step_mae_cm": 4.31
+  },
+  "nll": 1.925
+ },
+ "step_3000": {
+  "radial": {
+   "bucket_acc": 0.728,
+   "within_one": 0.995,
+   "sign_acc_when_off": 0.992,
+   "step_mae_cm": 0.82
+  },
+  "tangential": {
+   "bucket_acc": 0.699,
+   "within_one": 0.984,
+   "sign_acc_when_off": 0.375,
+   "step_mae_cm": 0.71
+  },
+  "dz": {
+   "bucket_acc": 0.689,
+   "within_one": 1.0,
+   "sign_acc_when_off": 1.0,
+   "step_mae_cm": 0.94
+  },
+  "nll": 0.84
+ },
+ "step_6000": {
+  "radial": {
+   "bucket_acc": 0.677,
+   "within_one": 1.0,
+   "sign_acc_when_off": 0.984,
+   "step_mae_cm": 0.8
+  },
+  "tangential": {
+   "bucket_acc": 0.731,
+   "within_one": 0.995,
+   "sign_acc_when_off": 0.804,
+   "step_mae_cm": 0.59
+  },
+  "dz": {
+   "bucket_acc": 0.808,
+   "within_one": 1.0,
+   "sign_acc_when_off": 1.0,
+   "step_mae_cm": 0.72
+  },
+  "nll": 0.658
+ },
+ "step_9000": {
+  "radial": {
+   "bucket_acc": 0.651,
+   "within_one": 1.0,
+   "sign_acc_when_off": 0.984,
+   "step_mae_cm": 0.82
+  },
+  "tangential": {
+   "bucket_acc": 0.785,
+   "within_one": 0.995,
+   "sign_acc_when_off": 0.839,
+   "step_mae_cm": 0.54
+  },
+  "dz": {
+   "bucket_acc": 0.763,
+   "within_one": 1.0,
+   "sign_acc_when_off": 1.0,
+   "step_mae_cm": 0.76
+  },
+  "nll": 0.756
+ },
+ "step_9186": {
+  "radial": {
+   "bucket_acc": 0.662,
+   "within_one": 1.0,
+   "sign_acc_when_off": 0.984,
+   "step_mae_cm": 0.83
+  },
+  "tangential": {
+   "bucket_acc": 0.774,
+   "within_one": 0.995,
+   "sign_acc_when_off": 0.786,
+   "step_mae_cm": 0.55
+  },
+  "dz": {
+   "bucket_acc": 0.808,
+   "within_one": 1.0,
+   "sign_acc_when_off": 1.0,
+   "step_mae_cm": 0.73
+  },
+  "nll": 0.758
+ }
+}

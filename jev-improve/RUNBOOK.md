@@ -11,6 +11,25 @@ make policy-server CKPT_HF=outputs/cube_grid_rel_lora32_2ep_20261031-1538/checkp
 ADAPTER=$PWD/outputs/jev_lora_dir/adapter_vllm make jev-server   # only for --judge jev|both or the JEV-9B servo
 ```
 
+## Faster / best-of-N pi0.5 (`DENOISE`, `BEST_OF`)
+
+Pass the same values to the server and the run (the run checks the server matches):
+
+```bash
+make policy-server CKPT_HF=<ckpt> DENOISE=3 BEST_OF=4
+make jev-live CKPT_HF=<ckpt> DENOISE=3 BEST_OF=4 CONFIG=real_robot/configs/piper_1_clamp.json INSTR="..." JEV=off
+```
+
+| setting | latency per chunk (3090) |
+|---|---|
+| default (compiled, 10 steps, 1 sample) | 107 ms |
+| `DENOISE=3` | 82 ms |
+| `DENOISE=3 BEST_OF=4` (medoid of 4) | 128 ms |
+| `DENOISE=3 BEST_OF=8` | 149 ms |
+
+`BEST_OF > 1` shares the VLM prefix across samples and runs the denoise loop as a CUDA graph
+(`pi05_samples.GraphDenoiser`); the run returns the medoid chunk (consensus over the first 0.5 s).
+
 ## Live A/B (10 trials per arm, same cube/bowl positions)
 
 ```bash

@@ -1,0 +1,67 @@
+{
+ "single": {
+  "dist": 0.0588,
+  "close_when_demo_closes": 0.658,
+  "close_when_not": 0.258
+ },
+ "progress|main|s0.5": {
+  "dist": 0.0553,
+  "close_when_demo_closes": 0.684,
+  "close_when_not": 0.182
+ },
+ "progress+consensus50|main|s0.5": {
+  "dist": 0.0511,
+  "close_when_demo_closes": 0.605,
+  "close_when_not": 0.182
+ },
+ "progress|allinstr|s0.5": {
+  "dist": 0.0563,
+  "close_when_demo_closes": 0.684,
+  "close_when_not": 0.167
+ },
+ "progress+consensus50|allinstr|s0.5": {
+  "dist": 0.0493,
+  "close_when_demo_closes": 0.579,
+  "close_when_not": 0.167
+ },
+ "progress|main|s0.5+1": {
+  "dist": 0.0711,
+  "close_when_demo_closes": 0.684,
+  "close_when_not": 0.303
+ },
+ "progress+consensus50|main|s0.5+1": {
+  "dist": 0.0529,
+  "close_when_demo_closes": 0.684,
+  "close_when_not": 0.182
+ },
+ "progress|allinstr|s0.5+1": {
+  "dist": 0.0748,
+  "close_when_demo_closes": 0.658,
+  "close_when_not": 0.295
+ },
+ "progress+consensus50|allinstr|s0.5+1": {
+  "dist": 0.0511,
+  "close_when_demo_closes": 0.526,
+  "close_when_not": 0.174
+ },
+ "progress|main|all": {
+  "dist": 0.1483,
+  "close_when_demo_closes": 0.921,
+  "close_when_not": 0.644
+ },
+ "progress+consensus50|main|all": {
+  "dist": 0.0621,
+  "close_when_demo_closes": 0.658,
+  "close_when_not": 0.295
+ },
+ "progress|allinstr|all": {
+  "dist": 0.1506,
+  "close_when_demo_closes": 0.921,
+  "close_when_not": 0.621
+ },
+ "progress+consensus50|allinstr|all": {
+  "dist": 0.0648,
+  "close_when_demo_closes": 0.658,
+  "close_when_not": 0.288
+ }
+}

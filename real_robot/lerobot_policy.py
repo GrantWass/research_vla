@@ -42,6 +42,10 @@ class LerobotPolicy:
       consecutive chunks differ only where the observation does. With fresh
       noise, replanning ~6x/s made the arm wobble (each joint reversed ~3x/s,
       live 2026-10-07). None: fresh noise per chunk.
+    best_of: sample this many chunks per call (prefix once, denoise loop as a
+      CUDA graph; noise from noise_seed if set) and return the medoid: the chunk closest on
+      average to the others over the first 0.5 s. Consensus filters the odd
+      sample; offline it moved chunks ~17% closer to the demos (jev-improve/VERIFIER.md).
 
     Checkpoints trained with RELATIVE=1 (real_robot/relative_actions.py)
     predict joints relative to the observed ones; self.relative is their
@@ -52,7 +56,7 @@ class LerobotPolicy:
     def __init__(self, path: str, camera_map: dict[str, str], extra_state=None,
                  device: str = "cuda", robot_type: str = "piper_follower",
                  base_offset: float = 0.0, compile_mode: str | None = None,
-                 num_steps: int | None = None, noise_seed: int | None = None):
+                 num_steps: int | None = None, noise_seed: int | None = None, best_of: int = 1):
         import torch
         from lerobot.configs.policies import PreTrainedConfig
         from lerobot.policies.factory import get_policy_class, make_pre_post_processors
@@ -79,6 +83,8 @@ class LerobotPolicy:
         self.robot_type = robot_type
         self.base_offset = float(base_offset)
         self.noise_seed = noise_seed
+        self.best_of = int(best_of)
+        self.last_pick: dict | None = None
         self.state_dim = cfg.input_features["observation.state"].shape[0]
         missing = {f"observation.images.{v}" for v in camera_map.values()} - set(cfg.input_features)
         if missing:
@@ -119,6 +125,10 @@ class LerobotPolicy:
         if func_name == "get_action":
             if self.noise_seed is not None:
                 self.torch.manual_seed(self.noise_seed)
+            if self.best_of > 1:
+                out = self._best_of()
+                out[:, 0] -= self.base_offset
+                return out
             with self.torch.inference_mode():
                 chunk = self.policy.predict_action_chunk(self._batch(self.obs))
                 chunk = self.post(chunk)
@@ -126,6 +136,33 @@ class LerobotPolicy:
             out[:, 0] -= self.base_offset
             return out
         raise ValueError(f"unknown call {func_name!r}")
+
+    def _best_of(self) -> np.ndarray:
+        """best_of chunks in one batched call, medoid over the first 15 steps."""
+        torch, n = self.torch, self.best_of
+        cfg = self.policy.config
+        from lerobot.utils.constants import OBS_LANGUAGE_ATTENTION_MASK, OBS_LANGUAGE_TOKENS
+
+        from .pi05_samples import GraphDenoiser
+
+        with torch.inference_mode():
+            b = self._batch(self.obs)
+            images, masks = self.policy._preprocess_images(b)
+            args = (images, masks, b[OBS_LANGUAGE_TOKENS], b[OBS_LANGUAGE_ATTENTION_MASK])
+            # VLM prefix once, N noises share its KV cache; the denoise loop is one CUDA graph
+            # (~130 ms for 4 at 3-5 steps vs ~250 ms re-running the compiled sampler per sample)
+            if getattr(self, "_graph", None) is None:
+                self._graph = GraphDenoiser(self.policy.model, *args, n=n, num_steps=cfg.num_inference_steps)
+            noise = torch.randn((n, cfg.chunk_size, cfg.max_action_dim), device=self.device)
+            a = self._graph(*args, noise)[:, :, :cfg.output_features["action"].shape[0]]
+            chunks = self.post(a)
+        C = np.stack([self.absolute(c, self.state) for c in chunks.float().cpu().numpy()])
+        w = np.ones(C.shape[-1]); w[6:] = 0.3  # joints, then gripper
+        h = C[:, :15] * w
+        D = np.sqrt(((h[:, None] - h[None]) ** 2).mean((-1, -2))).mean(1)
+        k = int(D.argmin())
+        self.last_pick = {"index": k, "spread": float(D.mean())}
+        return C[k]
 
     def absolute(self, chunk: np.ndarray, state: np.ndarray) -> np.ndarray:
         """Postprocessed chunk -> joint angles, given the state the policy saw."""
@@ -270,7 +307,7 @@ def _handle(conn, policy, info) -> bool:
 
 def _info(policy_kwargs) -> dict:
     return {k: policy_kwargs.get(k) for k in
-            ("path", "camera_map", "base_offset", "compile_mode", "num_steps", "noise_seed")}
+            ("path", "camera_map", "base_offset", "compile_mode", "num_steps", "noise_seed", "best_of")}
 
 
 def _serve_child(conn, policy_kwargs) -> None:
@@ -344,12 +381,13 @@ def main(argv=None) -> int:
     ap.add_argument("--compile", default=None, metavar="MODE")
     ap.add_argument("--denoise-steps", type=int, default=None)
     ap.add_argument("--noise-seed", type=int, default=None)
+    ap.add_argument("--best-of", type=int, default=1, help="sample N chunks per call, run the medoid")
     ap.add_argument("--socket", default=DEFAULT_SOCKET)
     args = ap.parse_args(argv)
     serve(args.socket, log=lambda m: print(m, flush=True), path=args.lerobot,
           camera_map=dict(kv.split(":") for kv in args.camera_map.split(",")),
           base_offset=float(np.radians(args.base_offset_deg)), compile_mode=args.compile,
-          num_steps=args.denoise_steps, noise_seed=args.noise_seed)
+          num_steps=args.denoise_steps, noise_seed=args.noise_seed, best_of=args.best_of)
     return 0
 
 

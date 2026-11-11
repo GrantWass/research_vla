@@ -436,6 +436,8 @@ def build_parser() -> argparse.ArgumentParser:
                          "replanning doesn't wobble between random plans")
     ap.add_argument("--denoise-steps", type=int, default=None,
                     help="--lerobot: flow-matching steps (default: the checkpoint's)")
+    ap.add_argument("--best-of", type=int, default=1,
+                    help="--lerobot: sample N chunks per call and run the medoid (consensus)")
     ap.add_argument("--timeout", type=float, default=10.0, help="policy call timeout, s")
     ap.add_argument("--log-dir", default=None)
     ap.add_argument("--preflight-only", action="store_true")
@@ -456,13 +458,14 @@ def make_policy(args, robot: RobotBackend, cfg: RobotConfig):
               camera_map=dict(kv.split(":") for kv in args.camera_map.split(",")),
               base_offset=float(np.radians(args.base_offset_deg)),
               compile_mode=args.compile, num_steps=args.denoise_steps,
-              noise_seed=args.noise_seed)
+              noise_seed=args.noise_seed, best_of=args.best_of)
     extra = robot.get_end_pose if args.end_pose_state else None
     if args.policy_server:
         addr = DEFAULT_SOCKET if args.policy_server == "default" else args.policy_server
         policy = PolicyClient(addr, extra_state=extra, expect={
             k: kw[k] for k in ("path", "camera_map", "base_offset")}
-            | {"noise_seed": args.noise_seed})
+            | {"noise_seed": args.noise_seed}
+            | ({"best_of": args.best_of} if args.best_of > 1 else {}))
         print(f"policy server: {policy.info}")
     elif args.policy_process:
         policy = PolicyProcess(extra_state=extra, **kw)

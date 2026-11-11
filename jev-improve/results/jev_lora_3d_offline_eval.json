@@ -1,0 +1,28 @@
+{
+ "n": 300,
+ "episodes": 20,
+ "jev9b_3d": {
+  "radial": {
+   "bucket_acc": 0.677,
+   "direction_when_off": 0.995,
+   "mae_cm": 0.86
+  },
+  "tangential": {
+   "bucket_acc": 0.753,
+   "direction_when_off": 0.747,
+   "mae_cm": 0.6
+  },
+  "dz": {
+   "bucket_acc": 0.76,
+   "direction_when_off": 1.0,
+   "mae_cm": 0.81
+  },
+  "one_correction": {
+   "n_far": 107,
+   "median_xy_before_cm": 5.41,
+   "median_xy_after_cm": 1.68,
+   "closer": 1.0
+  },
+  "latency_ms": 500.3
+ }
+}

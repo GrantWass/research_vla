@@ -120,7 +120,11 @@ def align(robot, s, args, log=print) -> dict:
     from .jevlite_offset import GraspOffset
 
     if args.offset_model not in _OFFSET:
-        _OFFSET[args.offset_model] = GraspOffset(args.offset_model)
+        if args.offset_model == "jev":  # JEV-9B 3-D buckets via the JEV server (3-D adapter)
+            from .jev_offset3d import JevGraspOffset
+            _OFFSET["jev"] = JevGraspOffset(args.jev_url, obj=args.jev_object)
+        else:
+            _OFFSET[args.offset_model] = GraspOffset(args.offset_model)
     model = _OFFSET[args.offset_model]
     J4 = s.jacobian(joints=(0, 1, 2, 4))
     rounds = []
